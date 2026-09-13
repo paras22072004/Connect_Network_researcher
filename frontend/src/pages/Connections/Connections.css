@@ -1,0 +1,113 @@
+.connections-header {
+  margin-bottom: 2rem;
+}
+
+.connections-header h1 {
+  font-size: 2rem;
+  margin-bottom: 0.25rem;
+}
+
+.connections-header p {
+  color: var(--text-muted);
+}
+
+.connections-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid var(--border-color);
+  margin-bottom: 2rem;
+}
+
+.tab-btn {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tab-btn:hover {
+  color: var(--primary-color);
+}
+
+.tab-btn.tab-active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+
+.connection-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.connection-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-person-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.clickable-person {
+  cursor: pointer;
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  transition: var(--transition);
+}
+
+.clickable-person:hover {
+  background-color: var(--primary-light);
+}
+
+.connection-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 2px solid var(--primary-light);
+}
+
+.card-person-info h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.person-role {
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+.person-org {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.connection-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.75rem;
+}
+
+.btn-danger-outline {
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+.btn-danger-outline:hover {
+  background-color: #fef2f2;
+}
