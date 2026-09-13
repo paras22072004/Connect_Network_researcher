@@ -24,9 +24,9 @@ const server = http.createServer(app);
 connectDB();
 
 // Setup Cross-Origin Resource Sharing (CORS)
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const CLIENT_URL = process.env.CLIENT_URL || '*';
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: true,
   credentials: true
 }));
 
@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 // Setup Socket.io with CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: [CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -45,6 +45,17 @@ const io = new Server(server, {
 
 // Initialize Socket.io Event Handlers
 initSocketHandler(io);
+
+// Root route to prevent Render 404 ping logs
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'GeoConnect API Backend Server is Running Successfully!',
+    health: '/api/health'
+  });
+});
+
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Mount API Routes
 app.use('/api/auth', authRoutes);
@@ -66,8 +77,8 @@ app.get('/api/health', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-// Start Server listening on PORT
-const PORT = process.env.PORT || 5000;
+// Start Server listening on PORT (Render sets process.env.PORT automatically)
+const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🚀 Location Networking Server running on PORT: ${PORT}`);
