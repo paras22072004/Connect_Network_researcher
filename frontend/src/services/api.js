@@ -2,10 +2,13 @@ import axios from 'axios';
 
 /**
  * Axios API Instance Configuration
- * Sets up base URL and automatically injects JWT Bearer token into headers.
+ * Automatically uses VITE_BACKEND_URL from environment variables for production (e.g. Render/Vercel)
+ * or falls back to local relative path '/api'.
  */
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
+
 const API = axios.create({
-  baseURL: '/api',
+  baseURL: BACKEND_URL ? `${BACKEND_URL}/api` : '/api',
   headers: {
     'Content-Type': 'application/json'
   }

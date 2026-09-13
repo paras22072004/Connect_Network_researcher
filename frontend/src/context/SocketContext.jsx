@@ -11,8 +11,10 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (user && token) {
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || window.location.origin;
+
       // Connect socket to backend server with auth token
-      const newSocket = io(window.location.origin, {
+      const newSocket = io(BACKEND_URL, {
         auth: { token },
         transports: ['websocket', 'polling']
       });
