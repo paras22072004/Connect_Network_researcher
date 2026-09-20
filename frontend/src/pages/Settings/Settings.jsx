@@ -86,8 +86,7 @@ const Settings = () => {
               {[
                 { label: '100 meters', val: 100 },
                 { label: '500 meters', val: 500 },
-                { label: '1 km', val: 1000 },
-                { label: '5 km', val: 5000 }
+                { label: '1 km', val: 1000 }
               ].map((r) => (
                 <button
                   key={r.val}
@@ -134,7 +133,7 @@ const Settings = () => {
             <div className="privacy-feature-item">
               <div>
                 <strong>Approximate Distance Labels:</strong>
-                <p>Other users only see privacy-safe labels such as <em>"Less than 100 meters away"</em> or <em>"Within 500 meters"</em>.</p>
+                <p>Other users only see privacy-safe labels such as <em>"Less than 100 meters away"</em>, <em>"Within 500 meters"</em>, or <em>"Around 25 km away"</em>.</p>
               </div>
             </div>
 

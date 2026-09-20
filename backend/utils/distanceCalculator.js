@@ -45,7 +45,8 @@ const formatApproximateDistance = (distanceMeters) => {
   } else if (distanceMeters <= 5000) {
     return 'Within 5 km';
   } else {
-    return 'Nearby';
+    const km = Math.round(distanceMeters / 1000);
+    return km > 0 ? `Around ${km} km away` : 'Farther away';
   }
 };
 
