@@ -18,14 +18,18 @@ import LoadingView from '../components/LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
 import { COLORS } from '../theme/theme';
 
-// Safely import react-native-maps only on Native Platforms (iOS / Android)
+// Safely import react-native-maps with try-catch guard to prevent APK launch crash
 let MapView, Marker, Callout, PROVIDER_DEFAULT;
-if (Platform.OS !== 'web') {
-  const Maps = require('react-native-maps');
-  MapView = Maps.default;
-  Marker = Maps.Marker;
-  Callout = Maps.Callout;
-  PROVIDER_DEFAULT = Maps.PROVIDER_DEFAULT;
+try {
+  if (Platform.OS !== 'web') {
+    const Maps = require('react-native-maps');
+    MapView = Maps.default;
+    Marker = Maps.Marker;
+    Callout = Maps.Callout;
+    PROVIDER_DEFAULT = Maps.PROVIDER_DEFAULT;
+  }
+} catch (err) {
+  console.warn('[Map Native Module Load Exception Guard]:', err);
 }
 
 const { width } = Dimensions.get('window');

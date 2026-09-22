@@ -25,7 +25,8 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "package": "com.geoconnect"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,6 +38,11 @@
           "locationWhenInUsePermission": "GeoConnect requires your location to discover nearby researchers and professionals."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1bbb586b-9730-4c1d-92ba-109639800c28"
+      }
+    }
   }
 }
