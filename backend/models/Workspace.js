@@ -160,6 +160,35 @@ const workspaceSchema = new mongoose.Schema({
       type: Date
     }
   }],
+  invitations: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    invitedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    role: {
+      type: String,
+      default: 'Researcher',
+      trim: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'rejected', 'cancelled'],
+      default: 'pending'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    respondedAt: {
+      type: Date
+    }
+  }],
   tasks: [taskSchema],
   milestones: [milestoneSchema],
   notes: [noteSchema],
@@ -172,6 +201,7 @@ workspaceSchema.index({ owner: 1 });
 workspaceSchema.index({ 'members.user': 1 });
 workspaceSchema.index({ isPublic: 1, status: 1 });
 workspaceSchema.index({ 'joinRequests.user': 1, 'joinRequests.status': 1 });
+workspaceSchema.index({ 'invitations.user': 1, 'invitations.status': 1 });
 
 const Workspace = mongoose.model('Workspace', workspaceSchema);
 module.exports = Workspace;

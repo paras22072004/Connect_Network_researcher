@@ -19,7 +19,10 @@ import {
   requestWorkspaceAccessApi,
   cancelWorkspaceRequestApi,
   respondToWorkspaceRequestApi,
-  getMyWorkspaceRequestsApi
+  getMyWorkspaceRequestsApi,
+  getMyWorkspaceInvitationsApi,
+  respondToWorkspaceInvitationApi,
+  deleteWorkspaceApi
 } from '../services/workspaceService';
 import LoadingView from '../components/LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
@@ -39,27 +42,22 @@ const getStatusColor = (status = '') => {
 };
 
 const WorkspacesScreen = ({ navigation }) => {
-  // Tabs: 'my' | 'discover' | 'requests'
   const [activeTab, setActiveTab] = useState('my');
-  // Sub-tab for requests: 'incoming' | 'sent'
   const [requestsSubTab, setRequestsSubTab] = useState('incoming');
-
   const [myWorkspaces, setMyWorkspaces] = useState([]);
   const [discoverWorkspaces, setDiscoverWorkspaces] = useState([]);
   const [sentRequests, setSentRequests] = useState([]);
+  const [myInvitations, setMyInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Request Access Modal
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [requestRole, setRequestRole] = useState('Researcher');
   const [requestMessage, setRequestMessage] = useState('');
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
 
-  // Action status message
   const [actionNotice, setActionNotice] = useState(null);
-
   const showNotice = (msg) => {
     setActionNotice(msg);
     setTimeout(() => setActionNotice(null), 3500);
@@ -68,17 +66,17 @@ const WorkspacesScreen = ({ navigation }) => {
   const loadData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
-
     try {
-      const [myRes, discoverRes, sentRes] = await Promise.all([
+      const [myRes, discoverRes, sentRes, invitesRes] = await Promise.all([
         getWorkspacesApi().catch(() => ({ success: false, workspaces: [] })),
         getDiscoverableWorkspacesApi().catch(() => ({ success: false, workspaces: [] })),
-        getMyWorkspaceRequestsApi().catch(() => ({ success: false, requests: [] }))
+        getMyWorkspaceRequestsApi().catch(() => ({ success: false, requests: [] })),
+        getMyWorkspaceInvitationsApi().catch(() => ({ success: false, invitations: [] }))
       ]);
-
       if (myRes.success) setMyWorkspaces(myRes.workspaces || []);
       if (discoverRes.success) setDiscoverWorkspaces(discoverRes.workspaces || []);
       if (sentRes.success) setSentRequests(sentRes.requests || []);
+      if (invitesRes.success) setMyInvitations(invitesRes.invitations || []);
     } catch (err) {
       console.error('Error fetching workspace data:', err);
     } finally {
@@ -98,7 +96,6 @@ const WorkspacesScreen = ({ navigation }) => {
     loadData(true);
   }, []);
 
-  // Compute incoming requests to workspaces owned by the user
   const incomingRequests = useMemo(() => {
     const list = [];
     myWorkspaces
@@ -116,7 +113,6 @@ const WorkspacesScreen = ({ navigation }) => {
     return list;
   }, [myWorkspaces]);
 
-  // Request to Join Workspace Handlers
   const handleOpenRequestModal = (ws) => {
     setSelectedWorkspace(ws);
     setRequestRole('Researcher');
@@ -132,7 +128,6 @@ const WorkspacesScreen = ({ navigation }) => {
         role: requestRole.trim() || 'Researcher',
         message: requestMessage.trim() || 'Excited to contribute to this workspace!'
       });
-
       if (res.success) {
         showNotice('Access request submitted to workspace organizer!');
         setShowRequestModal(false);
@@ -166,7 +161,6 @@ const WorkspacesScreen = ({ navigation }) => {
     ]);
   };
 
-  // Respond to incoming request
   const handleRespondRequest = async (workspaceId, requestId, action) => {
     try {
       const res = await respondToWorkspaceRequestApi(workspaceId, requestId, action);
@@ -179,11 +173,50 @@ const WorkspacesScreen = ({ navigation }) => {
     }
   };
 
-  // 1. Render My Workspaces Card
+  const pendingInvitationsCount = useMemo(() => {
+    return (myInvitations || []).filter(i => i.status === 'pending').length;
+  }, [myInvitations]);
+
+  const handleDeleteWorkspace = (workspaceId, title) => {
+    Alert.alert(
+      'Delete Workspace',
+      `Are you sure you want to delete "${title || 'this workspace'}"? All tasks, milestones, discussions, and member associations will be permanently removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await deleteWorkspaceApi(workspaceId);
+              if (res.success) {
+                showNotice('Workspace deleted successfully.');
+                loadData();
+              }
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Could not delete workspace.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleRespondInvitation = async (workspaceId, invitationId, action) => {
+    try {
+      const res = await respondToWorkspaceInvitationApi(workspaceId, invitationId, action);
+      if (res.success) {
+        showNotice(action === 'accept' ? 'Joined workspace successfully!' : 'Invitation declined.');
+        loadData();
+      }
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not process invitation response.');
+    }
+  };
+
   const renderMyWorkspaceCard = ({ item }) => {
     const statusStyle = getStatusColor(item.status);
     const progress = item.progressPercent || 0;
-
     return (
       <TouchableOpacity
         style={styles.card}
@@ -194,22 +227,33 @@ const WorkspacesScreen = ({ navigation }) => {
           <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg, borderColor: statusStyle.border }]}>
             <Text style={[styles.statusBadgeText, { color: statusStyle.text }]}>{item.status}</Text>
           </View>
-          {item.isOwner ? (
-            <View style={styles.ownerBadge}>
-              <Ionicons name="ribbon-outline" size={12} color="#B45309" style={{ marginRight: 3 }} />
-              <Text style={styles.ownerBadgeText}>Lead / Owner</Text>
-            </View>
-          ) : (
-            <Text style={styles.leadText}>Lead: {item.owner?.name || 'Project Owner'}</Text>
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {item.isOwner ? (
+              <View style={styles.ownerBadge}>
+                <Ionicons name="ribbon-outline" size={12} color="#B45309" style={{ marginRight: 3 }} />
+                <Text style={styles.ownerBadgeText}>Lead / Owner</Text>
+              </View>
+            ) : (
+              <Text style={styles.leadText}>Lead: {item.owner?.name || 'Project Owner'}</Text>
+            )}
+            {item.isOwner && (
+              <TouchableOpacity
+                style={styles.cardDeleteBtn}
+                onPress={() => handleDeleteWorkspace(item._id, item.title)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Delete Workspace"
+              >
+                <Ionicons name="trash-outline" size={14} color={COLORS.danger || '#EF4444'} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.desc} numberOfLines={2}>
           {item.description}
         </Text>
-
-        {/* Progress Bar */}
         <View style={styles.progressContainer}>
           <View style={styles.progressLabelRow}>
             <Text style={styles.progressLabel}>Tasks Progress</Text>
@@ -221,8 +265,6 @@ const WorkspacesScreen = ({ navigation }) => {
             <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
           </View>
         </View>
-
-        {/* Footer */}
         <View style={styles.cardFooter}>
           <View style={styles.membersRow}>
             {Array.isArray(item.members) &&
@@ -245,7 +287,6 @@ const WorkspacesScreen = ({ navigation }) => {
               </View>
             ) : null}
           </View>
-
           <View style={styles.footerActionsRight}>
             <View style={styles.milestoneRow}>
               <Ionicons name="flag-outline" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
@@ -260,11 +301,9 @@ const WorkspacesScreen = ({ navigation }) => {
     );
   };
 
-  // 2. Render Discover Workspace Card
   const renderDiscoverCard = ({ item }) => {
     const isPending = item.myRequestStatus === 'pending';
     const isRejected = item.myRequestStatus === 'rejected';
-
     return (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -284,13 +323,10 @@ const WorkspacesScreen = ({ navigation }) => {
             <Text style={styles.publicBadgeText}>Public</Text>
           </View>
         </View>
-
         <Text style={styles.title}>{item.title}</Text>
         <Text style={styles.desc} numberOfLines={3}>
           {item.description}
         </Text>
-
-        {/* Organizer details */}
         <View style={styles.organizerRow}>
           <Image
             source={{
@@ -311,8 +347,6 @@ const WorkspacesScreen = ({ navigation }) => {
             <Text style={styles.membersCountText}>{item.memberCount} member{item.memberCount === 1 ? '' : 's'}</Text>
           </View>
         </View>
-
-        {/* Action Button */}
         <View style={styles.discoverActionRow}>
           {isPending ? (
             <View style={styles.pendingActionBox}>
@@ -348,7 +382,6 @@ const WorkspacesScreen = ({ navigation }) => {
     );
   };
 
-  // 3. Render Inbound Request Card (Organizer review)
   const renderIncomingRequestCard = ({ item }) => {
     const requester = item.user;
     return (
@@ -361,7 +394,6 @@ const WorkspacesScreen = ({ navigation }) => {
             <Text style={styles.pendingPillText}>Pending Review</Text>
           </View>
         </View>
-
         <View style={styles.requesterProfileRow}>
           <Image
             source={{
@@ -379,13 +411,11 @@ const WorkspacesScreen = ({ navigation }) => {
             <Text style={styles.reqRoleBadge}>Desired Role: {item.role || 'Member'}</Text>
           </View>
         </View>
-
         {item.message ? (
           <View style={styles.reqMessageBox}>
             <Text style={styles.reqMessageText}>"{item.message}"</Text>
           </View>
         ) : null}
-
         <View style={styles.reqButtonsRow}>
           <TouchableOpacity
             style={styles.btnReject}
@@ -395,7 +425,6 @@ const WorkspacesScreen = ({ navigation }) => {
             <Ionicons name="close" size={15} color={COLORS.danger} style={{ marginRight: 4 }} />
             <Text style={styles.btnRejectText}>Decline</Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.btnAccept}
             onPress={() => handleRespondRequest(item.workspaceId, item._id, 'accept')}
@@ -409,12 +438,10 @@ const WorkspacesScreen = ({ navigation }) => {
     );
   };
 
-  // 4. Render Sent Request Card (User sent to another workspace)
   const renderSentRequestCard = ({ item }) => {
     const isPending = item.status === 'pending';
     const isAccepted = item.status === 'accepted';
     const isRejected = item.status === 'rejected';
-
     return (
       <View style={styles.card}>
         <View style={styles.reqHeader}>
@@ -441,13 +468,11 @@ const WorkspacesScreen = ({ navigation }) => {
             </Text>
           </View>
         </View>
-
         {item.workspaceDescription ? (
           <Text style={styles.desc} numberOfLines={2}>
             {item.workspaceDescription}
           </Text>
         ) : null}
-
         <View style={styles.sentMetaRow}>
           <Text style={styles.sentMetaText}>
             Organizer: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{item.owner?.name || 'Lead'}</Text>
@@ -456,7 +481,6 @@ const WorkspacesScreen = ({ navigation }) => {
             Role: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{item.requestedRole || 'Member'}</Text>
           </Text>
         </View>
-
         {isPending && (
           <View style={styles.sentActionRow}>
             <TouchableOpacity
@@ -473,9 +497,97 @@ const WorkspacesScreen = ({ navigation }) => {
     );
   };
 
+  const renderInvitationCard = ({ item }) => {
+    const isPending = item.status === 'pending';
+    const isAccepted = item.status === 'accepted';
+    const isRejected = item.status === 'rejected';
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.reqHeader}>
+          <Text style={styles.reqWorkspaceTitle} numberOfLines={1}>
+            {item.workspaceTitle}
+          </Text>
+          <View
+            style={[
+              styles.statusBadge,
+              isAccepted
+                ? { backgroundColor: '#E8F5E9', borderColor: '#C8E6C9' }
+                : isRejected
+                ? { backgroundColor: '#FFEBEE', borderColor: '#FFCDD2' }
+                : { backgroundColor: '#FFF8E1', borderColor: '#FFECB3' }
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusBadgeText,
+                { color: isAccepted ? '#2E7D32' : isRejected ? '#C62828' : '#F57F17' }
+              ]}
+            >
+              {isPending ? 'INVITATION' : item.status.toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        {item.workspaceDescription ? (
+          <Text style={styles.desc} numberOfLines={2}>
+            {item.workspaceDescription}
+          </Text>
+        ) : null}
+
+        <View style={styles.requesterProfileRow}>
+          <Image
+            source={{
+              uri:
+                item.owner?.profileImage ||
+                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
+            }}
+            style={styles.requesterAvatar}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.requesterName}>{item.owner?.name || 'Workspace Organizer'}</Text>
+            <Text style={styles.requesterRole}>
+              {item.owner?.role || 'Lead Researcher'} {item.owner?.organization ? `• ${item.owner.organization}` : ''}
+            </Text>
+            <Text style={styles.reqRoleBadge}>Role Offered: {item.role || 'Researcher'}</Text>
+          </View>
+        </View>
+
+        {isPending ? (
+          <View style={styles.reqButtonsRow}>
+            <TouchableOpacity
+              style={styles.btnReject}
+              onPress={() => handleRespondInvitation(item.workspaceId, item.invitationId, 'reject')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="close" size={15} color={COLORS.danger} style={{ marginRight: 4 }} />
+              <Text style={styles.btnRejectText}>Decline</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.btnAccept}
+              onPress={() => handleRespondInvitation(item.workspaceId, item.invitationId, 'accept')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="checkmark" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+              <Text style={styles.btnAcceptText}>Accept & Join</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isAccepted ? (
+          <TouchableOpacity
+            style={[styles.btnJoinWorkspace, { marginTop: 10 }]}
+            onPress={() => navigation.navigate('WorkspaceDetail', { workspaceId: item.workspaceId })}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="folder-open-outline" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.btnJoinWorkspaceText}>Open Workspace</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      {/* Action Toast Notice */}
       {actionNotice ? (
         <View style={styles.actionNoticeBox}>
           <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
@@ -483,7 +595,6 @@ const WorkspacesScreen = ({ navigation }) => {
         </View>
       ) : null}
 
-      {/* Top Header */}
       <View style={styles.topBar}>
         <View style={{ flex: 1, marginRight: 8 }}>
           <Text style={styles.screenHeading}>Research Workspaces</Text>
@@ -493,8 +604,6 @@ const WorkspacesScreen = ({ navigation }) => {
           style={styles.btnNew}
           onPress={() => navigation.navigate('CreateWorkspace')}
           activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Create New Workspace"
         >
           <View style={styles.btnContentRow}>
             <Ionicons name="add" size={15} color="#ffffff" style={{ marginRight: 2 }} />
@@ -503,21 +612,19 @@ const WorkspacesScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Segmented Top Tabs */}
+      {/* Responsive Segmented Top Tabs */}
       <View style={styles.segmentedTabBar}>
         <TouchableOpacity
           style={[styles.segmentBtn, activeTab === 'my' && styles.segmentBtnActive]}
           onPress={() => setActiveTab('my')}
           activeOpacity={0.7}
         >
-          <Ionicons
-            name={activeTab === 'my' ? 'folder' : 'folder-outline'}
-            size={14}
-            color={activeTab === 'my' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 5 }}
-          />
-          <Text style={[styles.segmentBtnText, activeTab === 'my' && styles.segmentBtnTextActive]}>
-            My Workspaces ({myWorkspaces.length})
+          <Text
+            style={[styles.segmentBtnText, activeTab === 'my' && styles.segmentBtnTextActive]}
+            adjustsFontSizeToFit
+            numberOfLines={1}
+          >
+            My Workspaces{myWorkspaces.length > 0 ? ` (${myWorkspaces.length})` : ''}
           </Text>
         </TouchableOpacity>
 
@@ -526,14 +633,12 @@ const WorkspacesScreen = ({ navigation }) => {
           onPress={() => setActiveTab('discover')}
           activeOpacity={0.7}
         >
-          <Ionicons
-            name={activeTab === 'discover' ? 'compass' : 'compass-outline'}
-            size={14}
-            color={activeTab === 'discover' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 5 }}
-          />
-          <Text style={[styles.segmentBtnText, activeTab === 'discover' && styles.segmentBtnTextActive]}>
-            Discover ({discoverWorkspaces.length})
+          <Text
+            style={[styles.segmentBtnText, activeTab === 'discover' && styles.segmentBtnTextActive]}
+            adjustsFontSizeToFit
+            numberOfLines={1}
+          >
+            Discover{discoverWorkspaces.length > 0 ? ` (${discoverWorkspaces.length})` : ''}
           </Text>
         </TouchableOpacity>
 
@@ -542,24 +647,21 @@ const WorkspacesScreen = ({ navigation }) => {
           onPress={() => setActiveTab('requests')}
           activeOpacity={0.7}
         >
-          <Ionicons
-            name={activeTab === 'requests' ? 'mail' : 'mail-outline'}
-            size={14}
-            color={activeTab === 'requests' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 5 }}
-          />
-          <Text style={[styles.segmentBtnText, activeTab === 'requests' && styles.segmentBtnTextActive]}>
+          <Text
+            style={[styles.segmentBtnText, activeTab === 'requests' && styles.segmentBtnTextActive]}
+            adjustsFontSizeToFit
+            numberOfLines={1}
+          >
             Requests
           </Text>
-          {incomingRequests.length > 0 && (
+          {(incomingRequests.length + pendingInvitationsCount) > 0 && (
             <View style={styles.tabBadge}>
-              <Text style={styles.tabBadgeText}>{incomingRequests.length}</Text>
+              <Text style={styles.tabBadgeText}>{incomingRequests.length + pendingInvitationsCount}</Text>
             </View>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Tab 3 Sub-Navigation for Requests */}
       {activeTab === 'requests' && (
         <View style={styles.subPillsRow}>
           <TouchableOpacity
@@ -568,7 +670,16 @@ const WorkspacesScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <Text style={[styles.subPillText, requestsSubTab === 'incoming' && styles.subPillTextActive]}>
-              Incoming ({incomingRequests.length})
+              Incoming{incomingRequests.length > 0 ? ` (${incomingRequests.length})` : ''}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subPill, requestsSubTab === 'invitations' && styles.subPillActive]}
+            onPress={() => setRequestsSubTab('invitations')}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.subPillText, requestsSubTab === 'invitations' && styles.subPillTextActive]}>
+              Invitations{pendingInvitationsCount > 0 ? ` (${pendingInvitationsCount})` : ''}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -577,13 +688,12 @@ const WorkspacesScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <Text style={[styles.subPillText, requestsSubTab === 'sent' && styles.subPillTextActive]}>
-              My Sent ({sentRequests.length})
+              My Sent{sentRequests.length > 0 ? ` (${sentRequests.length})` : ''}
             </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Main Content Area */}
       {loading && !refreshing ? (
         <LoadingView message="Loading collaboration workspaces..." />
       ) : activeTab === 'my' ? (
@@ -642,6 +752,21 @@ const WorkspacesScreen = ({ navigation }) => {
             />
           }
         />
+      ) : requestsSubTab === 'invitations' ? (
+        <FlatList
+          data={myInvitations}
+          keyExtractor={(item) => item.invitationId || item._id}
+          renderItem={renderInvitationCard}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
+          ListEmptyComponent={
+            <EmptyStateView
+              title="No Workspace Invitations"
+              description="When a workspace organizer invites you to join their project team, it will appear here."
+            />
+          }
+        />
       ) : (
         <FlatList
           data={sentRequests}
@@ -659,7 +784,6 @@ const WorkspacesScreen = ({ navigation }) => {
         />
       )}
 
-      {/* Request Access Modal */}
       <Modal
         visible={showRequestModal}
         transparent
@@ -674,11 +798,9 @@ const WorkspacesScreen = ({ navigation }) => {
                 <Ionicons name="close" size={20} color={COLORS.textMuted} />
               </TouchableOpacity>
             </View>
-
             <Text style={styles.modalSubtitle}>
               Request to join <Text style={{ fontWeight: '700', color: COLORS.textMain }}>{selectedWorkspace?.title}</Text>
             </Text>
-
             <Text style={styles.inputLabel}>Your Role / Contribution</Text>
             <TextInput
               style={styles.textInput}
@@ -687,7 +809,6 @@ const WorkspacesScreen = ({ navigation }) => {
               placeholder="e.g. ML Researcher, Frontend Engineer, Data Analyst"
               placeholderTextColor={COLORS.textLight}
             />
-
             <Text style={styles.inputLabel}>Message to Organizer (Optional)</Text>
             <TextInput
               style={[styles.textInput, styles.textArea]}
@@ -698,7 +819,6 @@ const WorkspacesScreen = ({ navigation }) => {
               multiline
               numberOfLines={3}
             />
-
             <View style={styles.modalButtonsRow}>
               <TouchableOpacity
                 style={styles.modalBtnCancel}
@@ -707,7 +827,6 @@ const WorkspacesScreen = ({ navigation }) => {
               >
                 <Text style={styles.modalBtnCancelText}>Cancel</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.modalBtnSubmit}
                 onPress={handleSendRequestAccess}
@@ -787,10 +906,11 @@ const styles = StyleSheet.create({
   segmentedTabBar: {
     flexDirection: 'row',
     backgroundColor: COLORS.bgCard,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border
+    borderBottomColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    gap: 4
   },
   segmentBtn: {
     flex: 1,
@@ -798,20 +918,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: COLORS.bgInput,
-    marginHorizontal: 3
+    paddingHorizontal: 4,
+    borderRadius: 18,
+    backgroundColor: 'transparent'
   },
   segmentBtnActive: {
-    backgroundColor: '#EAEFEA'
+    backgroundColor: COLORS.primaryLight || '#E8F5E9'
   },
   segmentBtnText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textMuted
+    fontWeight: '500',
+    color: COLORS.textMuted || '#6B7280',
+    textAlign: 'center'
   },
   segmentBtnTextActive: {
-    color: COLORS.primary,
+    color: COLORS.primary || '#15803D',
     fontWeight: '700'
   },
   tabBadge: {
@@ -819,7 +940,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     paddingHorizontal: 5,
     paddingVertical: 1,
-    marginLeft: 4
+    marginLeft: 3
   },
   tabBadgeText: {
     color: '#ffffff',
@@ -1310,6 +1431,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#ffffff'
+  },
+  cardDeleteBtn: {
+    padding: 4,
+    borderRadius: 6,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4
   }
 });
 

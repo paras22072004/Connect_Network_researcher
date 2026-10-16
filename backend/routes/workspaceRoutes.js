@@ -15,6 +15,10 @@ const {
   getWorkspaceMessages,
   postWorkspaceMessage,
   inviteMember,
+  respondToWorkspaceInvitation,
+  cancelWorkspaceInvitation,
+  getMyWorkspaceInvitations,
+  deleteWorkspace,
   addTask,
   updateTask,
   deleteTask,
@@ -31,15 +35,21 @@ router.route('/')
 
 router.get('/discover', protect, getDiscoverableWorkspaces);
 router.get('/my-requests', protect, getMyWorkspaceRequests);
+router.get('/my-invitations', protect, getMyWorkspaceInvitations);
 
 router.route('/:id')
-  .get(protect, getWorkspaceById);
+  .get(protect, getWorkspaceById)
+  .delete(protect, deleteWorkspace);
 
 // Workspace Join Requests
 router.post('/:id/request-access', protect, requestWorkspaceAccess);
 router.post('/:id/cancel-request', protect, cancelWorkspaceRequest);
 router.get('/:id/requests', protect, getWorkspaceRequests);
 router.post('/:id/requests/:requestId/respond', protect, respondToWorkspaceRequest);
+
+// Workspace Invitations (Owner invites candidate, candidate responds)
+router.post('/:id/invitations/:invitationId/respond', protect, respondToWorkspaceInvitation);
+router.post('/:id/invitations/:invitationId/cancel', protect, cancelWorkspaceInvitation);
 
 // Members Management
 router.post('/:id/members', protect, inviteMember);

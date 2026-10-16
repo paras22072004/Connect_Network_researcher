@@ -621,21 +621,7 @@ const TeamBuilderView = ({ navigation }) => {
           }
           showsVerticalScrollIndicator={false}
         >
-          {/* Flow Stepper Info Header */}
-          <View style={styles.flowBanner}>
-            <Text style={styles.flowBannerTitle}>Research Team Formation Flow</Text>
-            <View style={styles.flowStepsRow}>
-              <Text style={styles.flowStepPill}>1. Project Details</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>2. AI Match</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>3. Request</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>4. Approve</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>5. Team & Workspace</Text>
-            </View>
-          </View>
+          
 
           {loadingProjects && !refreshing ? (
             <LoadingView message="Loading your projects & research teams..." />
@@ -828,25 +814,7 @@ const TeamBuilderView = ({ navigation }) => {
             </View>
           </View>
 
-          {/* Quick Presets */}
-          <Text style={styles.presetLabel}>Quick Presets for Fast Demonstration:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsRow}>
-            {PROJECT_PRESETS.map((preset, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={styles.presetPill}
-                onPress={() => applyPreset(preset)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={`Load preset ${preset.title}`}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="bulb-outline" size={14} color={COLORS.primary} style={{ marginRight: 6 }} />
-                  <Text style={styles.presetPillText}>{preset.title}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+         
 
           {/* Form Card */}
           <View style={styles.formCard}>

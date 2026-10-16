@@ -2,6 +2,7 @@ const Workspace = require('../models/Workspace');
 const ProjectRequirement = require('../models/ProjectRequirement');
 const User = require('../models/User');
 const Connection = require('../models/Connection');
+const Notification = require('../models/Notification');
 const { createNotification } = require('../services/notificationService');
 
 /**
@@ -32,6 +33,8 @@ const getWorkspaces = async (req, res) => {
       .populate('owner', 'name role organization profileImage')
       .populate('members.user', 'name role organization profileImage')
       .populate('joinRequests.user', 'name role organization profileImage skills email')
+      .populate('invitations.user', 'name role organization profileImage skills email')
+      .populate('invitations.invitedBy', 'name role organization profileImage')
       .populate('project', 'title status researchDomain')
       .sort({ updatedAt: -1 });
 
@@ -43,6 +46,7 @@ const getWorkspaces = async (req, res) => {
       const completedMilestoneCount = wObj.milestones?.filter(m => m.completed).length || 0;
       const progressPercent = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0;
       const pendingRequestCount = wObj.joinRequests?.filter(r => r.status === 'pending').length || 0;
+      const pendingInvitationCount = wObj.invitations?.filter(i => i.status === 'pending').length || 0;
 
       return {
         ...wObj,
@@ -52,6 +56,7 @@ const getWorkspaces = async (req, res) => {
         completedMilestoneCount,
         progressPercent,
         pendingRequestCount,
+        pendingInvitationCount,
         isOwner: wObj.owner?._id?.toString() === req.user._id.toString()
       };
     });
@@ -140,6 +145,9 @@ const getWorkspaceById = async (req, res) => {
       .populate('tasks.assignee', 'name role profileImage')
       .populate('notes.createdBy', 'name role profileImage')
       .populate('discussions.sender', 'name role profileImage')
+      .populate('joinRequests.user', 'name role organization profileImage skills email')
+      .populate('invitations.user', 'name role organization profileImage skills email')
+      .populate('invitations.invitedBy', 'name role organization profileImage')
       .populate('project', 'title status researchDomain desiredTeamSize finalTeam');
 
     if (!workspace) {
@@ -158,6 +166,7 @@ const getWorkspaceById = async (req, res) => {
     const completedTaskCount = wObj.tasks?.filter(t => t.status === 'Completed').length || 0;
     const progressPercent = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0;
     const pendingRequestCount = wObj.joinRequests?.filter(r => r.status === 'pending').length || 0;
+    const pendingInvitationCount = wObj.invitations?.filter(i => i.status === 'pending').length || 0;
 
     return res.json({
       success: true,
@@ -167,6 +176,7 @@ const getWorkspaceById = async (req, res) => {
         completedTaskCount,
         progressPercent,
         pendingRequestCount,
+        pendingInvitationCount,
         isOwner: wObj.owner?._id?.toString() === req.user._id.toString()
       }
     });
@@ -196,15 +206,18 @@ const createWorkspace = async (req, res) => {
       { user: req.user._id, role: 'Lead', joinedAt: new Date() }
     ];
 
-    // Add any initial invited members
+    // Any initial collaborators become pending invitations rather than direct additions
+    const invitations = [];
     if (Array.isArray(initialMembers)) {
       for (const m of initialMembers) {
         const uId = typeof m === 'string' ? m : m.userId;
         if (uId && uId.toString() !== req.user._id.toString()) {
-          members.push({
+          invitations.push({
             user: uId,
+            invitedBy: req.user._id,
             role: m.role || 'Researcher',
-            joinedAt: new Date()
+            status: 'pending',
+            createdAt: new Date()
           });
         }
       }
@@ -218,6 +231,7 @@ const createWorkspace = async (req, res) => {
       isPublic: true,
       tags,
       members,
+      invitations,
       tasks: [],
       milestones: [],
       notes: [],
@@ -229,9 +243,27 @@ const createWorkspace = async (req, res) => {
       ]
     });
 
+    // Send notifications to any invited members
+    for (const inv of invitations) {
+      try {
+        await createNotification({
+          recipient: inv.user,
+          sender: req.user._id,
+          type: 'workspace_invitation',
+          title: 'Workspace Invitation',
+          message: `${req.user.name || 'Organizer'} invited you to join workspace "${workspace.title}".`,
+          workspace: workspace._id
+        });
+      } catch (notifErr) {
+        console.warn('[Workspace Create Notification Warn]:', notifErr.message);
+      }
+    }
+
     const populated = await Workspace.findById(workspace._id)
       .populate('owner', 'name role organization profileImage')
-      .populate('members.user', 'name role organization profileImage');
+      .populate('members.user', 'name role organization profileImage')
+      .populate('invitations.user', 'name role organization profileImage skills email')
+      .populate('invitations.invitedBy', 'name role organization profileImage');
 
     return res.status(201).json({
       success: true,
@@ -671,7 +703,7 @@ const postWorkspaceMessage = async (req, res) => {
 };
 
 /**
- * @desc    Invite a member directly by ID
+ * @desc    Invite a member to the workspace (Sends pending invitation)
  * @route   POST /api/workspaces/:id/members
  * @access  Private (Organizer only)
  */
@@ -681,6 +713,10 @@ const inviteMember = async (req, res) => {
 
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required.' });
+    }
+
+    if (userId.toString() === req.user._id.toString()) {
+      return res.status(400).json({ success: false, message: 'You cannot invite yourself to your own workspace.' });
     }
 
     const workspace = await Workspace.findById(req.params.id);
@@ -693,24 +729,28 @@ const inviteMember = async (req, res) => {
     }
 
     const alreadyMember = workspace.members.some(
-      m => m.user.toString() === userId.toString()
+      m => m.user?.toString() === userId.toString()
     );
     if (alreadyMember) {
       return res.status(400).json({ success: false, message: 'User is already a member of this workspace.' });
     }
 
-    workspace.members.push({
-      user: userId,
-      role: role.trim(),
-      joinedAt: new Date()
-    });
-
-    // Synchronize linked project final team if present
-    if (workspace.project) {
-      await ProjectRequirement.findByIdAndUpdate(workspace.project, {
-        $addToSet: { finalTeam: { user: userId, role: role.trim(), joinedAt: new Date() } }
-      });
+    // Check if there is already a pending invitation
+    if (!workspace.invitations) workspace.invitations = [];
+    const existingInvite = workspace.invitations.find(
+      i => i.user?.toString() === userId.toString() && i.status === 'pending'
+    );
+    if (existingInvite) {
+      return res.status(400).json({ success: false, message: 'An invitation has already been sent to this user.' });
     }
+
+    workspace.invitations.push({
+      user: userId,
+      invitedBy: req.user._id,
+      role: role.trim() || 'Researcher',
+      status: 'pending',
+      createdAt: new Date()
+    });
 
     await workspace.save();
 
@@ -718,21 +758,257 @@ const inviteMember = async (req, res) => {
     await createNotification({
       recipient: userId,
       sender: req.user._id,
-      type: 'workspace_request_accepted',
-      title: 'Added to Workspace',
-      message: `${req.user.name || 'Organizer'} added you to workspace "${workspace.title}".`,
+      type: 'workspace_invitation',
+      title: 'Workspace Invitation',
+      message: `${req.user.name || 'Organizer'} invited you to join workspace "${workspace.title}".`,
       workspace: workspace._id
     });
 
     const populated = await Workspace.findById(workspace._id)
-      .populate('members.user', 'name role organization profileImage');
+      .populate('members.user', 'name role organization profileImage')
+      .populate('invitations.user', 'name role organization profileImage skills email')
+      .populate('invitations.invitedBy', 'name role organization profileImage');
 
     return res.json({
       success: true,
-      message: 'Member added successfully!',
+      message: 'Invitation sent to user successfully! They will be added once they accept.',
+      invitations: populated.invitations,
       members: populated.members
     });
   } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Invitee responds to a workspace invitation (Accept or Decline)
+ * @route   POST /api/workspaces/:id/invitations/:invitationId/respond
+ * @access  Private (Invitee only)
+ */
+const respondToWorkspaceInvitation = async (req, res) => {
+  try {
+    const { action } = req.body; // 'accept' | 'reject'
+    if (!['accept', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action must be accept or reject.' });
+    }
+
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    const inviteItem = workspace.invitations?.id(req.params.invitationId);
+    if (!inviteItem) {
+      return res.status(404).json({ success: false, message: 'Invitation not found.' });
+    }
+
+    if (inviteItem.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You are not authorized to respond to this invitation.' });
+    }
+
+    if (inviteItem.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `This invitation has already been ${inviteItem.status}.`
+      });
+    }
+
+    if (action === 'accept') {
+      inviteItem.status = 'accepted';
+      inviteItem.respondedAt = new Date();
+
+      // Add to workspace members idempotently
+      const alreadyMember = workspace.members.some(
+        m => m.user?.toString() === req.user._id.toString()
+      );
+      if (!alreadyMember) {
+        workspace.members.push({
+          user: req.user._id,
+          role: inviteItem.role || 'Researcher',
+          joinedAt: new Date()
+        });
+      }
+
+      // Synchronize with linked project if one exists
+      if (workspace.project) {
+        const project = await ProjectRequirement.findById(workspace.project);
+        if (project) {
+          const inFinal = project.finalTeam?.some(
+            m => m.user?.toString() === req.user._id.toString()
+          );
+          if (!inFinal) {
+            project.finalTeam.push({
+              user: req.user._id,
+              role: inviteItem.role || 'Researcher',
+              joinedAt: new Date()
+            });
+            await project.save();
+          }
+        }
+      }
+
+      await workspace.save();
+
+      // Notify workspace owner
+      await createNotification({
+        recipient: workspace.owner,
+        sender: req.user._id,
+        type: 'workspace_invitation_accepted',
+        title: 'Workspace Invitation Accepted!',
+        message: `${req.user.name || 'A researcher'} accepted your invitation to join "${workspace.title}".`,
+        workspace: workspace._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'You have successfully joined the workspace!',
+        workspace
+      });
+    } else {
+      inviteItem.status = 'rejected';
+      inviteItem.respondedAt = new Date();
+      await workspace.save();
+
+      // Notify workspace owner
+      await createNotification({
+        recipient: workspace.owner,
+        sender: req.user._id,
+        type: 'workspace_invitation_declined',
+        title: 'Workspace Invitation Declined',
+        message: `${req.user.name || 'A researcher'} declined your invitation to join "${workspace.title}".`,
+        workspace: workspace._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'Workspace invitation declined.',
+        invitation: inviteItem
+      });
+    }
+  } catch (error) {
+    console.error('[Respond To Workspace Invitation Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Owner cancels a pending workspace invitation
+ * @route   POST /api/workspaces/:id/invitations/:invitationId/cancel
+ * @access  Private (Owner only)
+ */
+const cancelWorkspaceInvitation = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only workspace owner can cancel invitations.' });
+    }
+
+    const inviteItem = workspace.invitations?.id(req.params.invitationId);
+    if (!inviteItem) {
+      return res.status(404).json({ success: false, message: 'Invitation not found.' });
+    }
+
+    if (inviteItem.status !== 'pending') {
+      return res.status(400).json({ success: false, message: `Cannot cancel an invitation that is already ${inviteItem.status}.` });
+    }
+
+    inviteItem.status = 'cancelled';
+    inviteItem.respondedAt = new Date();
+    await workspace.save();
+
+    return res.json({
+      success: true,
+      message: 'Workspace invitation cancelled.'
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get all workspace invitations received by current user
+ * @route   GET /api/workspaces/my-invitations
+ * @access  Private
+ */
+const getMyWorkspaceInvitations = async (req, res) => {
+  try {
+    const workspaces = await Workspace.find({
+      'invitations.user': req.user._id
+    })
+      .populate('owner', 'name role organization profileImage email')
+      .populate('invitations.invitedBy', 'name role organization profileImage')
+      .sort({ updatedAt: -1 });
+
+    const invitations = [];
+    workspaces.forEach(ws => {
+      const myInvites = ws.invitations?.filter(
+        i => i.user?.toString() === req.user._id.toString()
+      ) || [];
+
+      myInvites.forEach(inv => {
+        invitations.push({
+          invitationId: inv._id,
+          workspaceId: ws._id,
+          workspaceTitle: ws.title,
+          workspaceDescription: ws.description,
+          owner: ws.owner,
+          role: inv.role,
+          status: inv.status,
+          createdAt: inv.createdAt,
+          respondedAt: inv.respondedAt
+        });
+      });
+    });
+
+    return res.json({
+      success: true,
+      count: invitations.length,
+      invitations
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete workspace (Owner only)
+ * @route   DELETE /api/workspaces/:id
+ * @access  Private (Owner only)
+ */
+const deleteWorkspace = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only workspace organizer can delete this workspace.' });
+    }
+
+    // 1. If linked to project, unlink it
+    if (workspace.project) {
+      await ProjectRequirement.findByIdAndUpdate(workspace.project, {
+        $set: { workspace: null }
+      });
+    }
+
+    // 2. Clean up notifications for this workspace
+    await Notification.deleteMany({ workspace: workspace._id });
+
+    // 3. Delete workspace
+    await Workspace.findByIdAndDelete(workspace._id);
+
+    return res.json({
+      success: true,
+      message: 'Workspace deleted successfully.'
+    });
+  } catch (error) {
+    console.error('[Delete Workspace Error]:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1021,6 +1297,10 @@ module.exports = {
   getWorkspaceMessages,
   postWorkspaceMessage,
   inviteMember,
+  respondToWorkspaceInvitation,
+  cancelWorkspaceInvitation,
+  getMyWorkspaceInvitations,
+  deleteWorkspace,
   addTask,
   updateTask,
   deleteTask,

@@ -81,6 +81,42 @@ export const getMyWorkspaceRequestsApi = async () => {
   }
 };
 
+export const getMyWorkspaceInvitationsApi = async () => {
+  try {
+    const res = await API.get('/workspaces/my-invitations');
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const respondToWorkspaceInvitationApi = async (id, invitationId, action) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/invitations/${invitationId}/respond`, { action });
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const cancelWorkspaceInvitationApi = async (id, invitationId) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/invitations/${invitationId}/cancel`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const deleteWorkspaceApi = async (id) => {
+  try {
+    const res = await API.delete(`/workspaces/${id}`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
 export const removeWorkspaceMemberApi = async (id, memberId) => {
   try {
     const res = await API.delete(`/workspaces/${id}/members/${memberId}`);

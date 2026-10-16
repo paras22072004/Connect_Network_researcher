@@ -27,6 +27,9 @@ const notificationSchema = new mongoose.Schema({
       'workspace_join_request',
       'workspace_request_accepted',
       'workspace_request_rejected',
+      'workspace_invitation',
+      'workspace_invitation_accepted',
+      'workspace_invitation_declined',
       'member_removed'
     ],
     required: true

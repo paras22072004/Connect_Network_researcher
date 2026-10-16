@@ -25,6 +25,8 @@ import {
   addNoteApi,
   deleteNoteApi,
   inviteMemberApi,
+  cancelWorkspaceInvitationApi,
+  deleteWorkspaceApi,
   getWorkspaceMessagesApi,
   postWorkspaceMessageApi,
   removeWorkspaceMemberApi
@@ -262,18 +264,79 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  // Invite Connection
+  // Invite Connection (Sends pending invitation)
   const handleInviteUser = async (userId) => {
     try {
       const res = await inviteMemberApi(workspaceId, { userId, role: 'Researcher' });
       if (res.success) {
-        setWorkspace((prev) => ({ ...prev, members: res.members }));
-        Alert.alert('Success', 'Teammate joined workspace!');
-        setShowInviteModal(false);
+        setWorkspace((prev) => ({
+          ...prev,
+          invitations: res.invitations || prev.invitations,
+          members: res.members || prev.members
+        }));
+        Alert.alert('Invitation Sent', 'An invitation has been sent! The researcher will be added to the team once they accept.');
+        showNotice('Workspace invitation sent!');
       }
     } catch (err) {
       Alert.alert('Invite Error', err.message || 'Could not invite user.');
     }
+  };
+
+  // Cancel Outbound Invitation (Owner only)
+  const handleCancelInvitation = (invitationId, userName) => {
+    Alert.alert(
+      'Cancel Invitation',
+      `Are you sure you want to cancel the invitation sent to ${userName || 'this collaborator'}?`,
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await cancelWorkspaceInvitationApi(workspaceId, invitationId);
+              if (res.success) {
+                setWorkspace((prev) => ({
+                  ...prev,
+                  invitations: (prev.invitations || []).map((i) =>
+                    i._id === invitationId ? { ...i, status: 'cancelled' } : i
+                  )
+                }));
+                showNotice('Invitation cancelled.');
+              }
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Could not cancel invitation.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Delete Workspace (Owner only)
+  const handleDeleteWorkspace = () => {
+    Alert.alert(
+      'Delete Workspace',
+      `Are you sure you want to delete "${workspace?.title}"? All tasks, milestones, discussions, and member associations will be permanently removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await deleteWorkspaceApi(workspaceId);
+              if (res.success) {
+                Alert.alert('Workspace Deleted', 'The workspace has been successfully deleted.');
+                navigation.goBack();
+              }
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Could not delete workspace.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Remove Member (Owner only)
@@ -352,8 +415,21 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Text style={styles.title} numberOfLines={1}>{workspace.title}</Text>
-          <View style={styles.statusPill}>
-            <Text style={styles.statusPillText}>{workspace.status}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={styles.statusPill}>
+              <Text style={styles.statusPillText}>{workspace.status}</Text>
+            </View>
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.btnDeleteWorkspaceHeader}
+                onPress={handleDeleteWorkspace}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Delete Workspace"
+              >
+                <Ionicons name="trash-outline" size={16} color={COLORS.danger || '#EF4444'} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -674,6 +750,46 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                 </View>
               );
             })}
+
+          {/* Pending Invitations Section (Visible to Owner) */}
+          {isOwner && Array.isArray(workspace.invitations) && workspace.invitations.filter(i => i.status === 'pending').length > 0 && (
+            <View style={{ marginTop: 22 }}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeading}>
+                  Pending Invitations ({workspace.invitations.filter(i => i.status === 'pending').length})
+                </Text>
+              </View>
+              {workspace.invitations
+                .filter(i => i.status === 'pending')
+                .map((inv) => {
+                  const u = inv.user;
+                  const imgUri =
+                    u?.profileImage ||
+                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
+                  return (
+                    <View key={inv._id} style={styles.memberCard}>
+                      <Image source={{ uri: imgUri }} style={styles.memberAvatarBig} />
+                      <View style={styles.memberInfo}>
+                        <Text style={styles.memberName}>{u?.name || 'Invited Teammate'}</Text>
+                        <Text style={styles.memberRole}>{u?.role ? `${u.role} • ${u.organization || ''}` : 'Researcher'}</Text>
+                        <View style={[styles.pendingPill, { marginTop: 4, alignSelf: 'flex-start' }]}>
+                          <Ionicons name="time-outline" size={11} color="#D97706" style={{ marginRight: 3 }} />
+                          <Text style={styles.pendingPillText}>Invitation Sent (Pending)</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.btnCancelInviteOutline}
+                        onPress={() => handleCancelInvitation(inv._id, u?.name)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="close-circle-outline" size={13} color={COLORS.danger || '#EF4444'} style={{ marginRight: 3 }} />
+                        <Text style={styles.btnCancelInviteOutlineText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+            </View>
+          )}
         </ScrollView>
       ) : null}
 
@@ -911,6 +1027,9 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                   const alreadyMember = workspace.members?.some(
                     (m) => m.user?._id === u?._id || m.user === u?._id
                   );
+                  const hasPendingInvite = (workspace.invitations || []).some(
+                    (i) => (i.user?._id === u?._id || i.user === u?._id) && i.status === 'pending'
+                  );
                   return (
                     <View key={c.connectionId} style={styles.inviteItem}>
                       <Image
@@ -930,7 +1049,12 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                       {alreadyMember ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           <Ionicons name="checkmark-circle" size={14} color={COLORS.primary} style={{ marginRight: 4 }} />
-                          <Text style={styles.alreadyMemberText}>Added</Text>
+                          <Text style={styles.alreadyMemberText}>Member</Text>
+                        </View>
+                      ) : hasPendingInvite ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
+                          <Ionicons name="time-outline" size={13} color="#D97706" style={{ marginRight: 4 }} />
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: '#D97706' }}>Invited (Pending)</Text>
                         </View>
                       ) : (
                         <TouchableOpacity
@@ -938,8 +1062,8 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                           onPress={() => handleInviteUser(u._id)}
                           activeOpacity={0.7}
                         >
-                          <Ionicons name="person-add" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
-                          <Text style={styles.btnInviteActionText}>Invite</Text>
+                          <Ionicons name="mail-outline" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                          <Text style={styles.btnInviteActionText}>Send Invite</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -1530,6 +1654,28 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '700'
+  },
+  btnDeleteWorkspaceHeader: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  btnCancelInviteOutline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6
+  },
+  btnCancelInviteOutlineText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.danger || '#EF4444'
   }
 });
 
