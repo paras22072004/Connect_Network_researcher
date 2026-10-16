@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwtUtils');
+const { updateUserEmbedding } = require('../services/aiEmbeddingService');
 
 /**
  * @desc    Register a new professional/researcher user account
@@ -66,6 +67,11 @@ const registerUser = async (req, res) => {
     });
 
     if (user) {
+      // Asynchronously generate AI semantic profile embedding for new user
+      updateUserEmbedding(user).catch(err =>
+        console.error('[Register] Embedding generation failed:', err.message)
+      );
+
       // Generate JWT token
       const token = generateToken(user._id);
 

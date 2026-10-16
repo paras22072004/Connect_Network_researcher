@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import ConnectionButton from './ConnectionButton';
 import { COLORS, SHADOWS } from '../theme/theme';
 
@@ -18,18 +19,37 @@ const NearbyUserCard = ({ user, onViewProfile, onOpenMessage }) => {
           <Text style={styles.organization} numberOfLines={1}>{user?.organization}</Text>
         </View>
         <View style={styles.matchBadge}>
+          <Ionicons name="sparkles" size={12} color={COLORS.primary} style={{ marginRight: 3 }} />
           <Text style={styles.matchText}>{matchScore}% Match</Text>
         </View>
       </View>
 
       <View style={styles.metaRow}>
         <View style={styles.distBadge}>
-          <Text style={styles.distText}>📍 {approxDistance}</Text>
+          <Ionicons name="location" size={13} color={COLORS.forest} style={{ marginRight: 3 }} />
+          <Text style={styles.distText}>{approxDistance}</Text>
         </View>
+        {Array.isArray(user?.matchReasons) && user.matchReasons.length > 0 ? (
+          <View style={styles.reasonBadge}>
+            <Text style={styles.reasonText} numberOfLines={1}>
+              Overlap: {user.matchReasons.slice(0, 2).join(', ')}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
+      {/* AI Semantic Match Explanation from backend embedding */}
+      {Boolean(user?.matchExplanation) ? (
+        <View style={styles.aiExplanationRow}>
+          <Ionicons name="bulb-outline" size={14} color={COLORS.primary} style={{ marginRight: 6, marginTop: 1 }} />
+          <Text style={styles.aiExplanationText} numberOfLines={2}>
+            {user.matchExplanation}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Tags preview */}
-      {user?.skills && user.skills.length > 0 && (
+      {Array.isArray(user?.skills) && user.skills.length > 0 ? (
         <View style={styles.tagsRow}>
           {user.skills.slice(0, 3).map((skill, index) => (
             <View key={index} style={styles.tagPill}>
@@ -37,13 +57,16 @@ const NearbyUserCard = ({ user, onViewProfile, onOpenMessage }) => {
             </View>
           ))}
         </View>
-      )}
+      ) : null}
 
       {/* Card Action Buttons */}
       <View style={styles.actionsRow}>
         <TouchableOpacity
           style={styles.btnOutline}
+          activeOpacity={0.7}
           onPress={() => onViewProfile && onViewProfile(user)}
+          accessibilityLabel={`View profile of ${user?.name}`}
+          accessibilityRole="button"
         >
           <Text style={styles.btnOutlineText}>View Profile</Text>
         </TouchableOpacity>
@@ -103,33 +126,69 @@ const styles = StyleSheet.create({
     marginTop: 1
   },
   matchBadge: {
-    backgroundColor: '#fffbeb',
-    borderColor: COLORS.warning,
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.sageMuted,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12
+    paddingVertical: 3,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   matchText: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#d97706'
+    fontWeight: '700',
+    color: COLORS.primary
   },
   metaRow: {
     marginTop: 8,
     flexDirection: 'row',
-    alignItems: 'center'
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6
   },
   distBadge: {
-    backgroundColor: COLORS.primaryLight,
+    backgroundColor: COLORS.bgInput,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   distText: {
     fontSize: 12,
     fontWeight: '600',
+    color: COLORS.textMuted
+  },
+  reasonBadge: {
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    maxWidth: '65%'
+  },
+  reasonText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: COLORS.primary
+  },
+  aiExplanationRow: {
+    backgroundColor: COLORS.sageLight,
+    borderWidth: 1,
+    borderColor: '#D4E2D8',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'flex-start'
+  },
+  aiExplanationText: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.primaryDark,
+    lineHeight: 16,
+    fontWeight: '500'
   },
   tagsRow: {
     flexDirection: 'row',
@@ -141,7 +200,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgInput,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 10
+    borderRadius: 8
   },
   tagText: {
     fontSize: 11,
@@ -152,7 +211,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: COLORS.border
@@ -163,7 +222,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: COLORS.borderDark,
-    backgroundColor: COLORS.bgMain
+    backgroundColor: COLORS.bgCard
   },
   btnOutlineText: {
     fontSize: 13,

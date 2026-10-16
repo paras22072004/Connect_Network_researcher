@@ -119,6 +119,23 @@ const userSchema = new mongoose.Schema({
   preferredRadius: {
     type: Number,
     default: 1000, // Preferred discovery radius in meters (100m, 500m, 1000m, 5000m)
+  },
+
+  /**
+   * AI Semantic Profile Vector & Metadata
+   * Excluded from default queries for privacy and efficiency.
+   */
+  aiProfileEmbedding: {
+    type: [Number],
+    select: false
+  },
+  aiEmbeddingUpdatedAt: {
+    type: Date,
+    default: null
+  },
+  aiProfileText: {
+    type: String,
+    select: false
   }
 }, {
   timestamps: true

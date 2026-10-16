@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   sendConnectionRequest,
   acceptConnectionRequest,
@@ -63,22 +64,35 @@ const ConnectionButton = ({
 
   const renderContent = () => {
     if (loading) {
-      return <ActivityIndicator size="small" color={COLORS.primary} />;
+      return <ActivityIndicator size="small" color={status === 'none' ? '#FFFFFF' : COLORS.primary} />;
     }
 
     if (status === 'accepted') {
-      return <Text style={styles.textSuccess}>Connected ✓</Text>;
+      return (
+        <View style={styles.btnInnerRow}>
+          <Ionicons name="checkmark-circle" size={14} color={COLORS.accent} style={{ marginRight: 4 }} />
+          <Text style={styles.textSuccess}>Connected</Text>
+        </View>
+      );
     }
 
     if (status === 'pending') {
       return (
-        <Text style={styles.textWarning}>
-          {isSender ? 'Pending (Cancel)' : 'Accept Request'}
-        </Text>
+        <View style={styles.btnInnerRow}>
+          <Ionicons name="time-outline" size={14} color={COLORS.warning} style={{ marginRight: 4 }} />
+          <Text style={styles.textWarning}>
+            {isSender ? 'Pending' : 'Accept'}
+          </Text>
+        </View>
       );
     }
 
-    return <Text style={styles.textPrimary}>Connect +</Text>;
+    return (
+      <View style={styles.btnInnerRow}>
+        <Ionicons name="person-add" size={14} color={COLORS.textWhite} style={{ marginRight: 4 }} />
+        <Text style={styles.textPrimary}>Connect</Text>
+      </View>
+    );
   };
 
   return (
@@ -91,6 +105,15 @@ const ConnectionButton = ({
       ]}
       onPress={handlePress}
       disabled={loading}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={
+        status === 'accepted'
+          ? `Connected with ${targetUser?.name || 'user'}`
+          : status === 'pending'
+          ? isSender ? 'Pending connection' : 'Accept connection request'
+          : `Connect with ${targetUser?.name || 'user'}`
+      }
     >
       {renderContent()}
     </TouchableOpacity>
@@ -106,6 +129,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 110
+  },
+  btnInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   btnPrimary: {
     backgroundColor: COLORS.primary,

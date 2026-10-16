@@ -3,9 +3,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 
 // Load environment configuration variables
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
@@ -13,6 +14,9 @@ const userRoutes = require('./routes/userRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const teamRoutes = require('./routes/teamRoutes');
+const eventRoutes = require('./routes/eventRoutes');
+const workspaceRoutes = require('./routes/workspaceRoutes');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const initSocketHandler = require('./socket/socketHandler');
 
@@ -33,6 +37,9 @@ app.use(cors({
 // Express Body Parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static uploaded media files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Setup Socket.io with CORS configuration
 const io = new Server(server, {
@@ -63,6 +70,9 @@ app.use('/api/users', userRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/connections', connectionRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/team', teamRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

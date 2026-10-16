@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { updateUserEmbedding } = require('../services/aiEmbeddingService');
 
 /**
  * @desc    Get logged in user profile
@@ -74,6 +75,11 @@ const updateUserProfile = async (req, res) => {
 
     const updatedUser = await user.save();
 
+    // Asynchronously update AI semantic embedding in background
+    updateUserEmbedding(updatedUser).catch(err =>
+      console.error('[UpdateProfile] Embedding update failed:', err.message)
+    );
+
     return res.json({
       success: true,
       message: 'Profile updated successfully',
@@ -107,8 +113,88 @@ const getUserById = async (req, res) => {
   }
 };
 
+const { calculateMatchScore } = require('../services/matchService');
+const { ensureUserEmbedding } = require('../services/aiEmbeddingService');
+
+/**
+ * @desc    Search and discover research publications across stored user profiles
+ * @route   GET /api/users/publications/search
+ * @access  Private
+ */
+const searchPublications = async (req, res) => {
+  try {
+    const { query = '', domain = '' } = req.query;
+    const currentUser = await User.findById(req.user._id).select('+aiProfileEmbedding');
+    let currentUserEmbedding = currentUser?.aiProfileEmbedding;
+    if (!Array.isArray(currentUserEmbedding) || currentUserEmbedding.length === 0) {
+      currentUserEmbedding = await ensureUserEmbedding(currentUser);
+    }
+
+    // Query users who have at least one publication
+    const filter = {
+      'publications.0': { $exists: true }
+    };
+
+    const usersWithPubs = await User.find(filter).select('-password +aiProfileEmbedding');
+
+    const results = [];
+    const qLower = query.toLowerCase().trim();
+    const domainLower = domain.toLowerCase().trim();
+
+    for (const u of usersWithPubs) {
+      const userObj = u.toObject();
+      const matchResult = calculateMatchScore(currentUser, userObj, {
+        exactDistanceMeters: 500,
+        radiusMeters: 1000,
+        vecA: currentUserEmbedding,
+        vecB: u.aiProfileEmbedding
+      });
+
+      for (const pub of u.publications || []) {
+        const titleMatch = !qLower || pub.title.toLowerCase().includes(qLower);
+        const abstractMatch = !qLower || (pub.abstract && pub.abstract.toLowerCase().includes(qLower));
+        const keywordMatch = !qLower || (Array.isArray(pub.keywords) && pub.keywords.some(k => k.toLowerCase().includes(qLower)));
+        const venueMatch = !qLower || (pub.publicationVenue && pub.publicationVenue.toLowerCase().includes(qLower));
+
+        const domainMatch = !domainLower || (pub.domain && pub.domain.toLowerCase().includes(domainLower)) ||
+          (Array.isArray(u.researchDomains) && u.researchDomains.some(d => d.toLowerCase().includes(domainLower)));
+
+        if ((titleMatch || abstractMatch || keywordMatch || venueMatch) && domainMatch) {
+          results.push({
+            publication: pub,
+            author: {
+              _id: u._id,
+              name: u.name,
+              role: u.role,
+              organization: u.organization,
+              profileImage: u.profileImage,
+              skills: u.skills || [],
+              researchInterests: u.researchInterests || []
+            },
+            authorMatchScore: matchResult.matchScore,
+            authorMatchExplanation: matchResult.matchExplanation
+          });
+        }
+      }
+    }
+
+    // Sort by highest match score
+    results.sort((a, b) => b.authorMatchScore - a.authorMatchScore);
+
+    return res.json({
+      success: true,
+      count: results.length,
+      publications: results
+    });
+  } catch (error) {
+    console.error('[Search Publications Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
-  getUserById
+  getUserById,
+  searchPublications
 };

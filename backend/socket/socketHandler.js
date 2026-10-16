@@ -39,15 +39,37 @@ const initSocketHandler = (io) => {
     // Broadcast updated list of online user IDs to all clients
     io.emit('get_online_users', Array.from(onlineUsers.keys()));
 
+    // Mark pending messages sent to this user as 'delivered'
+    Message.updateMany(
+      { receiver: userId, status: 'sent', read: false },
+      { $set: { status: 'delivered' } }
+    ).then(async () => {
+      const distinctSenders = await Message.distinct('sender', { receiver: userId, status: 'delivered', read: false });
+      distinctSenders.forEach((sId) => {
+        io.to(sId.toString()).emit('messages_delivered', { recipientId: userId });
+      });
+    }).catch((err) => console.error('[Socket update delivered error]:', err));
+
     /**
      * Private Message Event
      * Validates connection status before emitting message to receiver room.
      */
     socket.on('send_message', async (data) => {
       try {
-        const { receiverId, content } = data;
+        const {
+          receiverId,
+          content,
+          messageType,
+          mediaUrl,
+          mediaName,
+          mediaSize,
+          mediaMimeType
+        } = data;
 
-        if (!receiverId || !content || !content.trim()) return;
+        const hasText = content && content.trim().length > 0;
+        const hasMedia = !!mediaUrl;
+
+        if (!receiverId || (!hasText && !hasMedia)) return;
 
         // Verify active connection between users
         const isConnected = await areUsersConnected(userId, receiverId);
@@ -56,11 +78,21 @@ const initSocketHandler = (io) => {
           return;
         }
 
+        const isReceiverOnline = onlineUsers.has(receiverId);
+        const initialStatus = isReceiverOnline ? 'delivered' : 'sent';
+
         // Save message to MongoDB
         const newMessage = await Message.create({
           sender: userId,
           receiver: receiverId,
-          content: content.trim()
+          content: hasText ? content.trim() : '',
+          messageType: determinedType,
+          mediaUrl: mediaUrl || null,
+          mediaName: mediaName || null,
+          mediaSize: mediaSize || null,
+          mediaMimeType: mediaMimeType || null,
+          status: initialStatus,
+          read: false
         });
 
         const payload = {
@@ -68,6 +100,12 @@ const initSocketHandler = (io) => {
           sender: userId,
           receiver: receiverId,
           content: newMessage.content,
+          messageType: newMessage.messageType,
+          mediaUrl: newMessage.mediaUrl,
+          mediaName: newMessage.mediaName,
+          mediaSize: newMessage.mediaSize,
+          mediaMimeType: newMessage.mediaMimeType,
+          status: initialStatus,
           read: false,
           createdAt: newMessage.createdAt
         };
@@ -78,6 +116,23 @@ const initSocketHandler = (io) => {
       } catch (err) {
         console.error('[Socket Send Message Error]:', err);
         socket.emit('error_message', { message: 'Failed to deliver message' });
+      }
+    });
+
+    /**
+     * Mark Messages as Read Event
+     */
+    socket.on('mark_as_read', async ({ senderId }) => {
+      try {
+        if (!senderId) return;
+        await Message.updateMany(
+          { sender: senderId, receiver: userId, read: false },
+          { $set: { read: true, status: 'read' } }
+        );
+        // Notify original sender in real time that messages were read
+        io.to(senderId).emit('messages_read', { readerId: userId });
+      } catch (err) {
+        console.error('[Socket Mark As Read Error]:', err);
       }
     });
 

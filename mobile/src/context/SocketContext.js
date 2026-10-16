@@ -46,6 +46,28 @@ export const SocketProvider = ({ children }) => {
       setMessages((prev) => [...prev, message]);
     });
 
+    // When recipient reads messages, update ticks to read (blue)
+    newSocket.on('messages_read', ({ readerId }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          (m.receiver === readerId || m.receiver?._id === readerId)
+            ? { ...m, read: true, status: 'read' }
+            : m
+        )
+      );
+    });
+
+    // When recipient comes online, update ticks to delivered
+    newSocket.on('messages_delivered', ({ recipientId }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          ((m.receiver === recipientId || m.receiver?._id === recipientId) && !m.read)
+            ? { ...m, status: 'delivered' }
+            : m
+        )
+      );
+    });
+
     newSocket.on('user_typing', ({ senderId }) => {
       setTypingUsers((prev) => ({ ...prev, [senderId]: true }));
     });
@@ -61,9 +83,24 @@ export const SocketProvider = ({ children }) => {
     };
   }, [token, user]);
 
-  const sendMessage = (receiverId, content) => {
-    if (socket && receiverId && content) {
-      socket.emit('send_message', { receiverId, content });
+  const sendMessage = (receiverId, content = '', mediaData = null) => {
+    if (socket && receiverId && (content || mediaData)) {
+      const payload = {
+        receiverId,
+        content: content ? content.trim() : '',
+        messageType: mediaData ? mediaData.messageType : 'text',
+        mediaUrl: mediaData ? mediaData.mediaUrl : null,
+        mediaName: mediaData ? mediaData.mediaName : null,
+        mediaSize: mediaData ? mediaData.mediaSize : null,
+        mediaMimeType: mediaData ? mediaData.mediaMimeType : null
+      };
+      socket.emit('send_message', payload);
+    }
+  };
+
+  const markAsRead = (senderId) => {
+    if (socket && senderId) {
+      socket.emit('mark_as_read', { senderId });
     }
   };
 
@@ -88,6 +125,7 @@ export const SocketProvider = ({ children }) => {
         setMessages,
         typingUsers,
         sendMessage,
+        markAsRead,
         sendTyping,
         sendStopTyping
       }}

@@ -24,4 +24,11 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+export const resolveMediaUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const baseUrl = API_URL.replace(/\/api\/?$/, '');
+  return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 export default API;

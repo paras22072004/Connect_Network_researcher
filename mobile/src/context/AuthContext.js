@@ -55,22 +55,36 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (userData) => {
-    const data = await apiRegister(userData);
-    if (data.success && data.token) {
-      setToken(data.token);
-      setUser(data.user);
-      await saveToken(data.token);
-      await saveUserData(data.user);
-      return { success: true };
+    try {
+      const data = await apiRegister(userData);
+      if (data.success && data.token) {
+        setToken(data.token);
+        setUser(data.user);
+        await saveToken(data.token);
+        await saveUserData(data.user);
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'Registration failed' };
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.message || err.message || 'Registration failed'
+      };
     }
-    return { success: false, message: data.message || 'Registration failed' };
   };
 
   const logout = async () => {
-    setUser(null);
-    setToken(null);
-    await removeToken();
-    await removeUserData();
+    try {
+      setUser(null);
+      setToken(null);
+      await removeToken();
+      await removeUserData();
+    } catch (err) {
+      console.error('Error during auth logout cleanup:', err);
+    } finally {
+      setUser(null);
+      setToken(null);
+    }
   };
 
   const updateUser = async (updatedUserData) => {

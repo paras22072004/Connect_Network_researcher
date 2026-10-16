@@ -1,27 +1,35 @@
 // GeoConnect Mobile Design System & Theme Configuration
+// Professional Forest-Green / Sage palette with warm off-white backgrounds
 export const COLORS = {
-  primary: '#2563eb',
-  primaryDark: '#1d4ed8',
-  primaryLight: '#eff6ff',
-  secondary: '#475569',
-  accent: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
+  primary: '#24563B',       // Forest Green primary
+  primaryDark: '#1A3F2B',   // Deep Forest Green
+  primaryLight: '#EBF4EE',  // Light Sage / Forest tint
+  forest: '#24563B',
+  sage: '#5A7D69',          // Refined Sage accent
+  sageLight: '#F0F5F1',
+  sageMuted: '#849E8F',
+  secondary: '#4A564F',     // Dark Charcoal/Slate secondary
+  accent: '#3D7A58',
+  warning: '#D97706',
+  danger: '#DC2626',
+  success: '#24563B',
   
-  bgMain: '#f8fafc',
-  bgCard: '#ffffff',
-  bgInput: '#f1f5f9',
-  bgOverlay: 'rgba(15, 23, 42, 0.6)',
+  bgMain: '#F9F8F5',        // Warm off-white background
+  bgCard: '#FFFFFF',        // Pure white card background
+  bgInput: '#F2F1EC',       // Warm light neutral input background
+  bgElevated: '#FFFFFF',
+  bgOverlay: 'rgba(26, 36, 30, 0.65)',
 
-  textMain: '#0f172a',
-  textMuted: '#64748b',
-  textLight: '#94a3b8',
-  textWhite: '#ffffff',
+  textMain: '#1A221E',       // Dark charcoal text
+  textMuted: '#58655E',      // Refined charcoal/slate muted text
+  textLight: '#8A9790',      // Light neutral text
+  textWhite: '#FFFFFF',
 
-  border: '#e2e8f0',
-  borderDark: '#cbd5e1',
+  border: '#E3E7E2',        // Clean, subtle warm border
+  borderLight: '#EDF0EB',
+  borderDark: '#CBD2CA',
 
-  shadowColor: '#000000'
+  shadowColor: '#1A221E'
 };
 
 export const FONTS = {
@@ -30,19 +38,44 @@ export const FONTS = {
   medium: 'System'
 };
 
+import { Platform } from 'react-native';
+
 export const SHADOWS = {
-  sm: {
-    shadowColor: COLORS.shadowColor,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  md: {
-    shadowColor: COLORS.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-  }
+  sm: Platform.select({
+    web: {
+      boxShadow: '0 1px 3px rgba(26, 36, 30, 0.06)'
+    },
+    default: {
+      shadowColor: COLORS.shadowColor,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 2,
+    }
+  }),
+  md: Platform.select({
+    web: {
+      boxShadow: '0 2px 6px rgba(26, 36, 30, 0.08)'
+    },
+    default: {
+      shadowColor: COLORS.shadowColor,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+      elevation: 3,
+    }
+  }),
+  card: Platform.select({
+    web: {
+      boxShadow: '0 1px 4px rgba(26, 36, 30, 0.06)'
+    },
+    default: {
+      shadowColor: COLORS.shadowColor,
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 4,
+      elevation: 2,
+    }
+  })
 };
+

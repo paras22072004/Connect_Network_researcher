@@ -31,12 +31,19 @@ export const getToken = async () => {
 
 export const removeToken = async () => {
   try {
-    if (Platform.OS !== 'web' && SecureStore.deleteItemAsync) {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
+    if (Platform.OS !== 'web' && SecureStore && SecureStore.deleteItemAsync) {
+      await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
     }
+  } catch (e) {}
+
+  try {
     await AsyncStorage.removeItem(TOKEN_KEY);
-  } catch (e) {
-    await AsyncStorage.removeItem(TOKEN_KEY);
+  } catch (e) {}
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(TOKEN_KEY);
+    } catch (e) {}
   }
 };
 
@@ -60,7 +67,11 @@ export const getUserData = async () => {
 export const removeUserData = async () => {
   try {
     await AsyncStorage.removeItem(USER_KEY);
-  } catch (e) {
-    console.error('Error removing user data:', e);
+  } catch (e) {}
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(USER_KEY);
+    } catch (e) {}
   }
 };

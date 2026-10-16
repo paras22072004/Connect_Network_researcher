@@ -39,6 +39,82 @@ const ProfileCard = ({ user, isOwnProfile = false, onEditClick }) => {
         </div>
       </div>
 
+      {/* AI Compatibility Breakdown if viewed from proximity discovery */}
+      {user.matchScore !== undefined && (
+        <div className="profile-ai-match-card">
+          <div className="ai-match-header-row">
+            <div className="ai-match-title-group">
+              <span className="ai-spark-large">✨</span>
+              <h3 className="ai-card-heading">AI Match Compatibility</h3>
+            </div>
+            <span className="ai-overall-pill">{user.matchScore}% Match</span>
+          </div>
+
+          <div className="ai-modal-metrics-grid">
+            <div className="ai-metric-item">
+              <span className="ai-metric-label">Semantic Compatibility</span>
+              <div className="ai-metric-track">
+                <div
+                  className="ai-metric-bar fill-semantic"
+                  style={{ width: `${user.semanticScore ?? user.matchScore ?? 50}%` }}
+                ></div>
+              </div>
+              <span className="ai-metric-pct">{user.semanticScore ?? user.matchScore ?? 50}%</span>
+            </div>
+
+            <div className="ai-metric-item">
+              <span className="ai-metric-label">Skills Compatibility</span>
+              <div className="ai-metric-track">
+                <div
+                  className="ai-metric-bar fill-skill"
+                  style={{ width: `${user.skillScore ?? 50}%` }}
+                ></div>
+              </div>
+              <span className="ai-metric-pct">{user.skillScore ?? 50}%</span>
+            </div>
+
+            <div className="ai-metric-item">
+              <span className="ai-metric-label">Research Compatibility</span>
+              <div className="ai-metric-track">
+                <div
+                  className="ai-metric-bar fill-research"
+                  style={{ width: `${user.researchScore ?? 50}%` }}
+                ></div>
+              </div>
+              <span className="ai-metric-pct">{user.researchScore ?? 50}%</span>
+            </div>
+
+            <div className="ai-metric-item">
+              <span className="ai-metric-label">Location Proximity</span>
+              <div className="ai-metric-track">
+                <div
+                  className="ai-metric-bar fill-proximity"
+                  style={{ width: `${user.locationScore ?? 50}%` }}
+                ></div>
+              </div>
+              <span className="ai-metric-pct">{user.locationScore ?? 50}%</span>
+            </div>
+          </div>
+
+          <div className="ai-why-match-box">
+            <span className="ai-why-heading">Why You Match:</span>
+            {user.matchReasons && user.matchReasons.length > 0 ? (
+              <div className="ai-chips-wrap">
+                {user.matchReasons.map((reason, idx) => (
+                  <span key={idx} className="ai-reason-tag">
+                    ✓ {reason}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="ai-explanation-para">
+                ✓ {user.matchExplanation || 'Your professional and research profiles are semantically related.'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Skills & Research Interests Grid */}
       <div className="profile-grid">
         <div className="profile-section-card">

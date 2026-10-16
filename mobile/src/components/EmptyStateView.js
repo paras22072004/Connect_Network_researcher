@@ -9,7 +9,7 @@ const EmptyStateView = ({ title, description, children }) => {
       <Text style={styles.description}>
         {description || 'There are no items to display at this time.'}
       </Text>
-      {children && <View style={styles.actionContainer}>{children}</View>}
+      {children ? <View style={styles.actionContainer}>{children}</View> : null}
     </View>
   );
 };

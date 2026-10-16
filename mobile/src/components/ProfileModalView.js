@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Image, ScrollView, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import ConnectionButton from './ConnectionButton';
 import { COLORS } from '../theme/theme';
 
@@ -12,8 +13,14 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <Text style={styles.closeBtnText}>✕</Text>
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={onClose}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Close profile details"
+          >
+            <Ionicons name="close" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 
           <ScrollView showsVerticalScrollIndicator={false}>
@@ -24,11 +31,12 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
               <Text style={styles.role}>{user.role}</Text>
               <Text style={styles.organization}>{user.organization}</Text>
 
-              {user.matchScore && (
+              {Boolean(user.matchScore) ? (
                 <View style={styles.matchBadge}>
-                  <Text style={styles.matchText}>🎯 {user.matchScore}% Match Score</Text>
+                  <Ionicons name="sparkles" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
+                  <Text style={styles.matchText}>{user.matchScore}% Match Score</Text>
                 </View>
-              )}
+              ) : null}
             </View>
 
             {/* Connection Actions */}
@@ -45,16 +53,63 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
               />
             </View>
 
+            {/* AI Semantic Match Analysis (When supported by backend) */}
+            {(Boolean(user.matchExplanation) || user.semanticScore !== undefined) ? (
+              <View style={styles.aiCard}>
+                <View style={styles.aiCardHeader}>
+                  <View style={styles.aiCardTitleRow}>
+                    <Ionicons name="bulb-outline" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
+                    <Text style={styles.aiCardTitle}>AI Semantic Match Analysis</Text>
+                  </View>
+                  {Boolean(user.matchScore) ? (
+                    <View style={styles.matchScorePill}>
+                      <Text style={styles.matchScorePillText}>{user.matchScore}% Match</Text>
+                    </View>
+                  ) : null}
+                </View>
+                {user.matchExplanation ? (
+                  <Text style={styles.aiExplanationText}>{user.matchExplanation}</Text>
+                ) : null}
+
+                <View style={styles.metricGrid}>
+                  {user.semanticScore !== undefined ? (
+                    <View style={styles.metricItem}>
+                      <Text style={styles.metricLabel}>Semantic Match</Text>
+                      <Text style={styles.metricVal}>{user.semanticScore}%</Text>
+                    </View>
+                  ) : null}
+                  {user.skillScore !== undefined ? (
+                    <View style={styles.metricItem}>
+                      <Text style={styles.metricLabel}>Skill Overlap</Text>
+                      <Text style={styles.metricVal}>{user.skillScore}%</Text>
+                    </View>
+                  ) : null}
+                  {user.researchScore !== undefined ? (
+                    <View style={styles.metricItem}>
+                      <Text style={styles.metricLabel}>Research Overlap</Text>
+                      <Text style={styles.metricVal}>{user.researchScore}%</Text>
+                    </View>
+                  ) : null}
+                  {Boolean(user.approximateDistance) ? (
+                    <View style={styles.metricItem}>
+                      <Text style={styles.metricLabel}>Proximity</Text>
+                      <Text style={styles.metricVal}>{user.approximateDistance}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
             {/* Bio */}
-            {user.bio && (
+            {Boolean(user.bio) ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>About / Bio</Text>
                 <Text style={styles.bioText}>{user.bio}</Text>
               </View>
-            )}
+            ) : null}
 
             {/* Research Interests */}
-            {user.researchInterests && user.researchInterests.length > 0 && (
+            {Array.isArray(user.researchInterests) && user.researchInterests.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Research Interests</Text>
                 <View style={styles.pillsContainer}>
@@ -65,10 +120,10 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
                   ))}
                 </View>
               </View>
-            )}
+            ) : null}
 
             {/* Technical Skills */}
-            {user.skills && user.skills.length > 0 && (
+            {Array.isArray(user.skills) && user.skills.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Technical Skills</Text>
                 <View style={styles.pillsContainer}>
@@ -79,36 +134,36 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
                   ))}
                 </View>
               </View>
-            )}
+            ) : null}
 
             {/* Publications */}
-            {user.publications && user.publications.length > 0 && (
+            {Array.isArray(user.publications) && user.publications.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Research Publications</Text>
                 {user.publications.map((pub, idx) => (
                   <View key={idx} style={styles.cardItem}>
                     <Text style={styles.cardTitle}>{pub.title}</Text>
-                    {pub.abstract && <Text style={styles.cardDesc}>{pub.abstract}</Text>}
-                    {pub.publicationVenue && (
+                    {pub.abstract ? <Text style={styles.cardDesc}>{pub.abstract}</Text> : null}
+                    {pub.publicationVenue ? (
                       <Text style={styles.cardMeta}>Venue: {pub.publicationVenue}</Text>
-                    )}
+                    ) : null}
                   </View>
                 ))}
               </View>
-            )}
+            ) : null}
 
             {/* Projects */}
-            {user.projects && user.projects.length > 0 && (
+            {Array.isArray(user.projects) && user.projects.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Projects</Text>
                 {user.projects.map((proj, idx) => (
                   <View key={idx} style={styles.cardItem}>
                     <Text style={styles.cardTitle}>{proj.title}</Text>
-                    {proj.description && <Text style={styles.cardDesc}>{proj.description}</Text>}
+                    {proj.description ? <Text style={styles.cardDesc}>{proj.description}</Text> : null}
                   </View>
                 ))}
               </View>
-            )}
+            ) : null}
           </ScrollView>
         </View>
       </View>
@@ -171,18 +226,89 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   matchBadge: {
-    backgroundColor: '#fffbeb',
-    borderColor: COLORS.warning,
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.sageMuted,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 14,
-    marginTop: 10
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   matchText: {
     fontSize: 12,
-    fontWeight: '800',
-    color: '#d97706'
+    fontWeight: '700',
+    color: COLORS.primary
+  },
+  aiCard: {
+    backgroundColor: COLORS.sageLight,
+    borderWidth: 1,
+    borderColor: '#D4E2D8',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20
+  },
+  aiCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  aiCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1
+  },
+  aiCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primaryDark
+  },
+  matchScorePill: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10
+  },
+  matchScorePillText: {
+    color: COLORS.textWhite,
+    fontSize: 11,
+    fontWeight: '700'
+  },
+  aiExplanationText: {
+    fontSize: 13,
+    color: COLORS.textMain,
+    lineHeight: 18,
+    marginBottom: 10
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#D4E2D8',
+    paddingTop: 8
+  },
+  metricItem: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: COLORS.bgCard,
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: COLORS.textMuted
+  },
+  metricVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginTop: 2
   },
   actionsContainer: {
     alignItems: 'center',

@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Connection = require('../models/Connection');
 const { calculateHaversineDistanceMeters, formatApproximateDistance } = require('../utils/distanceCalculator');
 const { calculateMatchScore } = require('../services/matchService');
+const { ensureUserEmbedding } = require('../services/aiEmbeddingService');
 
 /**
  * @desc    Update current logged-in user's GPS Location in GeoJSON format
@@ -54,6 +55,26 @@ const updateLocation = async (req, res) => {
 };
 
 /**
+ * Generates a privacy-safe obfuscated map coordinate for rendering markers.
+ * Adds a small deterministic radial offset (~60 to 140 meters) based on user ID.
+ * This guarantees the user's exact stored latitude & longitude are NEVER sent to the client.
+ */
+const getPrivacySafeMapPosition = (userIdStr, realLat, realLng) => {
+  let hash = 0;
+  for (let i = 0; i < userIdStr.length; i++) {
+    hash = (hash << 5) - hash + userIdStr.charCodeAt(i);
+    hash |= 0;
+  }
+  const angle = Math.abs(hash % 360) * (Math.PI / 180);
+  const offsetDist = 0.0006 + (Math.abs(hash) % 800) / 1000000;
+
+  return {
+    latitude: parseFloat((realLat + offsetDist * Math.cos(angle)).toFixed(5)),
+    longitude: parseFloat((realLng + offsetDist * Math.sin(angle)).toFixed(5))
+  };
+};
+
+/**
  * @desc    Find nearby discoverable users within specified radius (in meters or 'all'/'others')
  * @route   GET /api/location/nearby
  * @access  Private
@@ -64,7 +85,7 @@ const getNearbyUsers = async (req, res) => {
     const rawRadius = Number(req.query.radius) || req.user.preferredRadius || 1000;
     const radiusMeters = Math.min(Math.max(rawRadius, 100), 1000);
     const isAll = false;
-    const currentUser = await User.findById(req.user._id);
+    const currentUser = await User.findById(req.user._id).select('+aiProfileEmbedding');
 
     if (!currentUser || !currentUser.location || !currentUser.location.coordinates || currentUser.location.coordinates.length < 2) {
       return res.status(200).json({
@@ -83,6 +104,12 @@ const getNearbyUsers = async (req, res) => {
         locationRequired: true,
         message: 'Please enable your GPS location to discover nearby professionals.'
       });
+    }
+
+    // Ensure currentUser has AI semantic embedding
+    let currentUserEmbedding = currentUser.aiProfileEmbedding;
+    if (!Array.isArray(currentUserEmbedding) || currentUserEmbedding.length === 0) {
+      currentUserEmbedding = await ensureUserEmbedding(currentUser);
     }
 
     // Fetch existing connections for the current user
@@ -112,7 +139,7 @@ const getNearbyUsers = async (req, res) => {
         _id: { $ne: req.user._id },
         discoverable: true,
         'location.coordinates': { $ne: [0, 0] }
-      }).select('-password');
+      }).select('-password +aiProfileEmbedding');
     } else {
       try {
         candidates = await User.find({
@@ -128,14 +155,14 @@ const getNearbyUsers = async (req, res) => {
               $maxDistance: radiusMeters
             }
           }
-        }).select('-password');
+        }).select('-password +aiProfileEmbedding');
       } catch (geoErr) {
         console.warn('[Geospatial Query Fallback]: Using Haversine filter due to 2dsphere index state:', geoErr.message);
         const allDiscoverable = await User.find({
           _id: { $ne: req.user._id },
           discoverable: true,
           'location.coordinates': { $ne: [0, 0] }
-        }).select('-password');
+        }).select('-password +aiProfileEmbedding');
 
         candidates = allDiscoverable.filter(u => {
           if (!u.location || !u.location.coordinates || u.location.coordinates.length < 2) return false;
@@ -147,60 +174,65 @@ const getNearbyUsers = async (req, res) => {
       }
     }
 
-/**
- * Generates a privacy-safe obfuscated map coordinate for rendering markers.
- * Adds a small deterministic radial offset (~60 to 140 meters) based on user ID.
- * This guarantees the user's exact stored latitude & longitude are NEVER sent to the client.
- */
-const getPrivacySafeMapPosition = (userIdStr, realLat, realLng) => {
-  let hash = 0;
-  for (let i = 0; i < userIdStr.length; i++) {
-    hash = (hash << 5) - hash + userIdStr.charCodeAt(i);
-    hash |= 0;
-  }
-  const angle = Math.abs(hash % 360) * (Math.PI / 180);
-  const offsetDist = 0.0006 + (Math.abs(hash) % 800) / 1000000;
-
-  return {
-    latitude: parseFloat((realLat + offsetDist * Math.cos(angle)).toFixed(5)),
-    longitude: parseFloat((realLng + offsetDist * Math.sin(angle)).toFixed(5))
-  };
-};
-
     /**
-     * PRIVACY OBFUSCATION & SMART MATCH ENHANCEMENT
-     * Filters out un-updated coordinates [0,0] to guarantee no fake 8770km entries.
+     * PRIVACY OBFUSCATION & HYBRID AI MATCH ENHANCEMENT
+     * Filters out un-updated coordinates [0,0] and computes 4-component hybrid match score.
      */
-    const processedNearbyUsers = candidates
-      .filter(candidate => {
-        const coords = candidate.location?.coordinates;
-        return coords && coords.length >= 2 && !(coords[0] === 0 && coords[1] === 0);
-      })
-      .map(candidate => {
-        const candidateObj = candidate.toObject();
-        const [candLng, candLat] = candidateObj.location?.coordinates || [0, 0];
+    const processedNearbyUsers = await Promise.all(
+      candidates
+        .filter(candidate => {
+          const coords = candidate.location?.coordinates;
+          return coords && coords.length >= 2 && !(coords[0] === 0 && coords[1] === 0);
+        })
+        .map(async candidate => {
+          const candidateObj = candidate.toObject();
+          const [candLng, candLat] = candidateObj.location?.coordinates || [0, 0];
 
-        const exactDistance = calculateHaversineDistanceMeters(userLat, userLng, candLat, candLng);
-        const approximateDistance = formatApproximateDistance(exactDistance);
-        const mapPosition = getPrivacySafeMapPosition(candidateObj._id.toString(), candLat, candLng);
-        const { matchScore, matchDetails } = calculateMatchScore(currentUser, candidateObj);
-        const connectionInfo = connectionMap[candidateObj._id.toString()] || { status: 'none' };
+          const exactDistance = calculateHaversineDistanceMeters(userLat, userLng, candLat, candLng);
+          const approximateDistance = formatApproximateDistance(exactDistance);
+          const mapPosition = getPrivacySafeMapPosition(candidateObj._id.toString(), candLat, candLng);
 
-        delete candidateObj.location;
+          // Candidate embedding (cached or generated on-demand)
+          let candidateEmbedding = candidate.aiProfileEmbedding;
+          if (!Array.isArray(candidateEmbedding) || candidateEmbedding.length === 0) {
+            candidateEmbedding = await ensureUserEmbedding(candidate);
+          }
 
-        return {
-          ...candidateObj,
-          approximateDistance,
-          mapPosition,
-          matchScore,
-          matchDetails,
-          connectionStatus: connectionInfo.status,
-          connectionId: connectionInfo.connectionId || null,
-          isSender: connectionInfo.isSender || false
-        };
-      });
+          // Compute explainable hybrid match score
+          const matchResult = calculateMatchScore(currentUser, candidateObj, {
+            exactDistanceMeters: exactDistance,
+            radiusMeters,
+            vecA: currentUserEmbedding,
+            vecB: candidateEmbedding
+          });
 
-    // Sort by highest match score first, then by closest distance
+          const connectionInfo = connectionMap[candidateObj._id.toString()] || { status: 'none' };
+
+          // STRICT PRIVACY PROTECTION: Strip exact coordinates and raw embeddings
+          delete candidateObj.location;
+          delete candidateObj.aiProfileEmbedding;
+          delete candidateObj.aiProfileText;
+
+          return {
+            ...candidateObj,
+            approximateDistance,
+            mapPosition,
+            matchScore: matchResult.matchScore,
+            semanticScore: matchResult.semanticScore,
+            skillScore: matchResult.skillScore,
+            researchScore: matchResult.researchScore,
+            locationScore: matchResult.locationScore,
+            matchReasons: matchResult.matchReasons,
+            matchExplanation: matchResult.matchExplanation,
+            matchDetails: matchResult.matchDetails,
+            connectionStatus: connectionInfo.status,
+            connectionId: connectionInfo.connectionId || null,
+            isSender: connectionInfo.isSender || false
+          };
+        })
+    );
+
+    // Sort by highest hybrid match score first, then by closest distance
     processedNearbyUsers.sort((a, b) => b.matchScore - a.matchScore);
 
     return res.json({

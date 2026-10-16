@@ -52,7 +52,7 @@ const getMessages = async (req, res) => {
     // Mark unread incoming messages as read
     await Message.updateMany(
       { sender: targetUserId, receiver: currentUserId, read: false },
-      { $set: { read: true } }
+      { $set: { read: true, status: 'read' } }
     );
 
     return res.json({
@@ -66,7 +66,48 @@ const getMessages = async (req, res) => {
 };
 
 /**
- * @desc    Send a message to a connected user (REST Endpoint)
+ * @desc    Upload media file (image, video, audio, document) for messaging
+ * @route   POST /api/messages/upload
+ * @access  Private
+ */
+const uploadMedia = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const path = require('path');
+    const mime = req.file.mimetype ? req.file.mimetype.toLowerCase() : '';
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    let messageType = 'file';
+    if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+      messageType = 'image';
+    } else if (mime.startsWith('video/') || ['.mp4', '.mov', '.webm', '.avi', '.mkv'].includes(ext)) {
+      messageType = 'video';
+    } else if (mime.startsWith('audio/') || ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(ext)) {
+      messageType = 'audio';
+    } else {
+      messageType = 'file';
+    }
+
+    const mediaUrl = `/uploads/${req.file.filename}`;
+
+    return res.status(200).json({
+      success: true,
+      mediaUrl,
+      mediaName: req.file.originalname,
+      mediaSize: req.file.size,
+      mediaMimeType: req.file.mimetype,
+      messageType
+    });
+  } catch (error) {
+    console.error('[Upload Media Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Send a message (text or media) to a connected user (REST Endpoint)
  * @route   POST /api/messages/:userId
  * @access  Private
  */
@@ -74,10 +115,23 @@ const sendMessage = async (req, res) => {
   try {
     const senderId = req.user._id;
     const receiverId = req.params.userId;
-    const { content } = req.body;
+    const {
+      content,
+      messageType,
+      mediaUrl,
+      mediaName,
+      mediaSize,
+      mediaMimeType
+    } = req.body;
 
-    if (!content || !content.trim()) {
-      return res.status(400).json({ success: false, message: 'Message content cannot be empty' });
+    const hasText = content && content.trim().length > 0;
+    const hasMedia = !!mediaUrl;
+
+    if (!hasText && !hasMedia) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message must contain text content or media.'
+      });
     }
 
     // Verify connection status
@@ -89,10 +143,17 @@ const sendMessage = async (req, res) => {
       });
     }
 
+    const determinedType = messageType || (hasMedia ? 'image' : 'text');
+
     const message = await Message.create({
       sender: senderId,
       receiver: receiverId,
-      content: content.trim()
+      content: hasText ? content.trim() : '',
+      messageType: determinedType,
+      mediaUrl: mediaUrl || null,
+      mediaName: mediaName || null,
+      mediaSize: mediaSize || null,
+      mediaMimeType: mediaMimeType || null
     });
 
     return res.status(201).json({
@@ -109,5 +170,6 @@ const sendMessage = async (req, res) => {
 module.exports = {
   getMessages,
   sendMessage,
+  uploadMedia,
   areUsersConnected
 };
