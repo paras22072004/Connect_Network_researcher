@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwtUtils');
 const { updateUserEmbedding } = require('../services/aiEmbeddingService');
+const { normalizeList } = require('../services/catalogService');
 
 /**
  * @desc    Register a new professional/researcher user account
@@ -113,11 +114,11 @@ const registerUser = async (req, res) => {
       role: finalRole,
       organization: finalOrg,
       bio: bio || 'Passionate about research, innovation, and professional networking.',
-      skills: parseArrayField(skills),
+      skills: normalizeList('skill', parseArrayField(skills), { namesOnly: true }),
       expertise: parseArrayField(expertise),
-      researchInterests: finalInterests,
+      researchInterests: normalizeList('interest', finalInterests, { namesOnly: true }),
       researchTopics: finalResearchTopics,
-      researchDomains: parseArrayField(researchDomains),
+      researchDomains: normalizeList('domain', parseArrayField(researchDomains), { namesOnly: true }),
       projects: finalProjects,
       // Default placeholder location (0, 0) until updated via Geolocation API
       location: {

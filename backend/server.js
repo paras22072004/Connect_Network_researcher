@@ -18,6 +18,8 @@ const teamRoutes = require('./routes/teamRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const workspaceRoutes = require('./routes/workspaceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const catalogRoutes = require('./routes/catalogRoutes');
+const { seedCatalogIfEmpty } = require('./services/catalogService');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const initSocketHandler = require('./socket/socketHandler');
 
@@ -26,7 +28,9 @@ const app = express();
 const server = http.createServer(app);
 
 // Connect to MongoDB Database
-connectDB();
+connectDB().then(() => {
+  seedCatalogIfEmpty();
+});
 
 // Setup Cross-Origin Resource Sharing (CORS)
 const CLIENT_URL = process.env.CLIENT_URL || '*';
@@ -78,6 +82,7 @@ app.use('/api/team', teamRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/catalog', catalogRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

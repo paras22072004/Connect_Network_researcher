@@ -5,14 +5,30 @@ const Workspace = require('../models/Workspace');
 const { createNotification } = require('../services/notificationService');
 const { generateEmbedding, cosineSimilarity, normalizeSemanticScore, ensureUserEmbedding } = require('../services/aiEmbeddingService');
 const { calculateHaversineDistanceMeters, formatApproximateDistance } = require('../utils/distanceCalculator');
+const { normalizeList, resolveToCanonical } = require('../services/catalogService');
 
 /**
- * Case-insensitive array intersection helper
+ * Canonical catalog array intersection helper.
+ * Resolves aliases and checks exact canonical matching.
  */
-const findMatches = (listA = [], listB = []) => {
-  if (!Array.isArray(listA) || !Array.isArray(listB)) return [];
-  const setA = new Set(listA.map(item => String(item).toLowerCase().trim()));
-  return listB.filter(item => setA.has(String(item).toLowerCase().trim()));
+const findMatches = (listA = [], listB = [], type = 'skill') => {
+  if (!Array.isArray(listA) || !Array.isArray(listB) || listA.length === 0 || listB.length === 0) return [];
+  const normA = normalizeList(type, listA, { namesOnly: false });
+  const normB = normalizeList(type, listB, { namesOnly: false });
+
+  const mapA = new Map();
+  normA.forEach((item) => mapA.set(item.id, item.name));
+
+  const matches = [];
+  const seen = new Set();
+  normB.forEach((item) => {
+    if (mapA.has(item.id) && !seen.has(item.id)) {
+      seen.add(item.id);
+      matches.push(mapA.get(item.id));
+    }
+  });
+
+  return matches;
 };
 
 /**
@@ -119,7 +135,7 @@ const recommendTeammates = async (req, res) => {
 
       // (B) Complementary Skill Coverage (25% weight)
       const candSkills = Array.isArray(candObj.skills) ? candObj.skills : [];
-      const matchedSkills = findMatches(requiredSkills, candSkills);
+      const matchedSkills = findMatches(requiredSkills, candSkills, 'skill');
       let skillScore = 20;
       if (requiredSkills.length > 0) {
         const ratio = matchedSkills.length / requiredSkills.length;
@@ -147,15 +163,23 @@ const recommendTeammates = async (req, res) => {
       let domainScore = 30;
       let domainMatched = false;
       if (researchDomain) {
-        const candInterests = [
+        const canonicalTarget = resolveToCanonical('domain', researchDomain);
+        const candInterestsAndDomains = [
           ...(candObj.researchInterests || []),
-          ...(candObj.researchDomains || [])
-        ].map(s => String(s).toLowerCase().trim());
-
-        const targetDomain = researchDomain.toLowerCase().trim();
-        domainMatched = candInterests.some(item => item.includes(targetDomain) || targetDomain.includes(item));
-        if (domainMatched) {
+          ...(candObj.researchDomains || []),
+          ...((candObj.researchTopics || []).map((t) => t.domain).filter(Boolean))
+        ];
+        const normalizedCandDomains = normalizeList('domain', candInterestsAndDomains, { namesOnly: false });
+        if (canonicalTarget && normalizedCandDomains.some((d) => d.id === canonicalTarget.id)) {
+          domainMatched = true;
           domainScore = 100;
+        } else {
+          const candInterests = candInterestsAndDomains.map((s) => String(s).toLowerCase().trim());
+          const targetDomain = researchDomain.toLowerCase().trim();
+          domainMatched = candInterests.some((item) => item.includes(targetDomain) || targetDomain.includes(item));
+          if (domainMatched) {
+            domainScore = 100;
+          }
         }
       }
 

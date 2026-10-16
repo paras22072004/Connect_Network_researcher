@@ -37,6 +37,7 @@ import { addTaskApi, updateTaskApi, getWorkspaceByIdApi } from '../services/work
 import ProfileModalView from './ProfileModalView';
 import LoadingView from './LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
+import CatalogMultiSelect from './CatalogMultiSelect';
 import { COLORS, SHADOWS } from '../theme/theme';
 
 // Quick Preset Project Ideas for fast demonstration
@@ -86,7 +87,7 @@ const TeamBuilderView = ({ navigation }) => {
   // Step 1: Project Definition Form
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [requiredSkills, setRequiredSkills] = useState('');
+  const [requiredSkills, setRequiredSkills] = useState([]);
   const [researchDomain, setResearchDomain] = useState('');
   const [desiredRoles, setDesiredRoles] = useState('');
   const [collaborationType, setCollaborationType] = useState('Research Paper');
@@ -220,8 +221,12 @@ const TeamBuilderView = ({ navigation }) => {
   const applyPreset = (preset) => {
     setTitle(preset.title);
     setDescription(preset.description);
-    setRequiredSkills(preset.requiredSkills);
-    setResearchDomain(preset.researchDomain);
+    setRequiredSkills(
+      Array.isArray(preset.requiredSkills)
+        ? preset.requiredSkills
+        : (preset.requiredSkills ? preset.requiredSkills.split(',').map((s) => s.trim()).filter(Boolean) : [])
+    );
+    setResearchDomain(preset.researchDomain || '');
     setDesiredRoles(preset.desiredRoles);
     setCollaborationType(preset.collaborationType);
     setDesiredTeamSize(preset.desiredTeamSize || '4');
@@ -241,7 +246,12 @@ const TeamBuilderView = ({ navigation }) => {
     setSearching(true);
     setSearched(true);
     try {
-      const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
+      const parseSkills = Array.isArray(requiredSkills)
+        ? requiredSkills
+        : (requiredSkills ? requiredSkills.split(',').map((s) => s.trim()).filter(Boolean) : []);
+      const parseDomain = typeof researchDomain === 'string'
+        ? researchDomain.trim()
+        : (Array.isArray(researchDomain) ? researchDomain[0] || '' : '');
       const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
       const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
 
@@ -251,7 +261,7 @@ const TeamBuilderView = ({ navigation }) => {
           title: title.trim(),
           description: description.trim(),
           requiredSkills: parseSkills,
-          researchDomain: researchDomain.trim(),
+          researchDomain: parseDomain,
           desiredRoles: parseRoles,
           collaborationType,
           desiredTeamSize: teamSizeNum,
@@ -268,7 +278,7 @@ const TeamBuilderView = ({ navigation }) => {
         title: title.trim(),
         description: description.trim(),
         requiredSkills: parseSkills,
-        researchDomain: researchDomain.trim(),
+        researchDomain: parseDomain,
         desiredRoles: parseRoles,
         collaborationType,
         desiredTeamSize: teamSizeNum,
@@ -291,14 +301,19 @@ const TeamBuilderView = ({ navigation }) => {
   const handleInviteCandidate = async (candidate) => {
     if (!currentProjectId) {
       try {
-        const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
+        const parseSkills = Array.isArray(requiredSkills)
+          ? requiredSkills
+          : (requiredSkills ? requiredSkills.split(',').map((s) => s.trim()).filter(Boolean) : []);
+        const parseDomain = typeof researchDomain === 'string'
+          ? researchDomain.trim()
+          : (Array.isArray(researchDomain) ? researchDomain[0] || '' : '');
         const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
         const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
         const saveRes = await saveProjectApi({
           title: title.trim() || 'Research Project',
           description: description.trim() || 'Collaborative research exploration',
           requiredSkills: parseSkills,
-          researchDomain: researchDomain.trim(),
+          researchDomain: parseDomain,
           desiredRoles: parseRoles,
           collaborationType,
           desiredTeamSize: teamSizeNum,
@@ -840,17 +855,29 @@ const TeamBuilderView = ({ navigation }) => {
               multiline
               numberOfLines={3}
             />
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.inputLabel}>Research / Professional Domain</Text>
+              <CatalogMultiSelect
+                type="domain"
+                singleSelect={true}
+                selectedValues={researchDomain}
+                onValuesChange={setResearchDomain}
+                placeholder="Select project domain (e.g. Healthcare, AI, Climate)..."
+              />
+            </View>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.inputLabel}>Required Skills (Standardized Catalog)</Text>
+              <CatalogMultiSelect
+                type="skill"
+                selectedValues={requiredSkills}
+                onValuesChange={setRequiredSkills}
+                placeholder="Search standardized skills (e.g. Python, PyTorch, React)..."
+                helperText="Select canonical skills for precision AI compatibility scoring"
+              />
+            </View>
+
             <View style={styles.twoCol}>
-              <View style={styles.col}>
-                <Text style={styles.inputLabel}>Research / Professional Domain</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Healthcare AI"
-                  placeholderTextColor={COLORS.textLight}
-                  value={researchDomain}
-                  onChangeText={setResearchDomain}
-                />
-              </View>
               <View style={styles.col}>
                 <Text style={styles.inputLabel}>Desired Team Size</Text>
                 <TextInput
@@ -860,26 +887,6 @@ const TeamBuilderView = ({ navigation }) => {
                   keyboardType="numeric"
                   value={desiredTeamSize}
                   onChangeText={setDesiredTeamSize}
-                />
-              </View>
-            </View>
-            <Text style={styles.inputLabel}>Required Skills (comma-separated)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Python, PyTorch, Computer Vision, MLOps"
-              placeholderTextColor={COLORS.textLight}
-              value={requiredSkills}
-              onChangeText={setRequiredSkills}
-            />
-            <View style={styles.twoCol}>
-              <View style={styles.col}>
-                <Text style={styles.inputLabel}>Project Goals</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Submit paper to MICCAI"
-                  placeholderTextColor={COLORS.textLight}
-                  value={projectGoals}
-                  onChangeText={setProjectGoals}
                 />
               </View>
               <View style={styles.col}>
@@ -892,6 +899,17 @@ const TeamBuilderView = ({ navigation }) => {
                   onChangeText={setTimeline}
                 />
               </View>
+            </View>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.inputLabel}>Project Goals</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Submit paper to MICCAI"
+                placeholderTextColor={COLORS.textLight}
+                value={projectGoals}
+                onChangeText={setProjectGoals}
+              />
             </View>
 
             {/* Run AI Match Button */}

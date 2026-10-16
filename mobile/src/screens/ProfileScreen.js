@@ -27,6 +27,7 @@ import {
   updateUserProfile
 } from '../services/userService';
 import LoadingView from '../components/LoadingView';
+import CatalogMultiSelect from '../components/CatalogMultiSelect';
 import { COLORS, SHADOWS } from '../theme/theme';
 import { getAvatarUri } from '../constants/avatars';
 
@@ -47,7 +48,7 @@ const ProfileScreen = ({ navigation }) => {
   const [topicTitle, setTopicTitle] = useState('');
   const [topicDomain, setTopicDomain] = useState('');
   const [topicDesc, setTopicDesc] = useState('');
-  const [topicSkills, setTopicSkills] = useState('');
+  const [topicSkills, setTopicSkills] = useState([]);
   const [savingTopic, setSavingTopic] = useState(false);
   const [topicError, setTopicError] = useState('');
 
@@ -58,7 +59,7 @@ const ProfileScreen = ({ navigation }) => {
   const [projectStatus, setProjectStatus] = useState('In Progress');
   const [projectDomain, setProjectDomain] = useState('');
   const [projectDesc, setProjectDesc] = useState('');
-  const [projectTech, setProjectTech] = useState('');
+  const [projectTech, setProjectTech] = useState([]);
   const [projectLink, setProjectLink] = useState('');
   const [savingProject, setSavingProject] = useState(false);
   const [projectError, setProjectError] = useState('');
@@ -100,7 +101,7 @@ const ProfileScreen = ({ navigation }) => {
     setTopicTitle('');
     setTopicDomain('');
     setTopicDesc('');
-    setTopicSkills('');
+    setTopicSkills([]);
     setTopicError('');
     setResearchModalVisible(true);
   };
@@ -110,7 +111,11 @@ const ProfileScreen = ({ navigation }) => {
     setTopicTitle(topic.title || '');
     setTopicDomain(topic.domain || '');
     setTopicDesc(topic.description || '');
-    setTopicSkills(Array.isArray(topic.skills) ? topic.skills.join(', ') : '');
+    setTopicSkills(
+      Array.isArray(topic.skills)
+        ? topic.skills
+        : (topic.skills ? topic.skills.split(',').map((s) => s.trim()).filter(Boolean) : [])
+    );
     setTopicError('');
     setResearchModalVisible(true);
   };
@@ -138,14 +143,17 @@ const ProfileScreen = ({ navigation }) => {
     setTopicError('');
 
     try {
-      const skillsArray = topicSkills
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const skillsArray = Array.isArray(topicSkills)
+        ? topicSkills
+        : (topicSkills ? topicSkills.split(',').map((s) => s.trim()).filter(Boolean) : []);
+
+      const finalDomain = typeof topicDomain === 'string'
+        ? topicDomain.trim()
+        : (Array.isArray(topicDomain) ? topicDomain[0] || '' : '');
 
       const payload = {
         title: trimmedTitle,
-        domain: topicDomain.trim(),
+        domain: finalDomain,
         description: topicDesc.trim(),
         skills: skillsArray
       };
@@ -223,7 +231,7 @@ const ProfileScreen = ({ navigation }) => {
     setProjectStatus('In Progress');
     setProjectDomain('');
     setProjectDesc('');
-    setProjectTech('');
+    setProjectTech([]);
     setProjectLink('');
     setProjectError('');
     setProjectModalVisible(true);
@@ -235,7 +243,11 @@ const ProfileScreen = ({ navigation }) => {
     setProjectStatus(proj.status || 'In Progress');
     setProjectDomain(proj.domain || '');
     setProjectDesc(proj.description || '');
-    setProjectTech(Array.isArray(proj.techStack) ? proj.techStack.join(', ') : '');
+    setProjectTech(
+      Array.isArray(proj.techStack)
+        ? proj.techStack
+        : (proj.techStack ? proj.techStack.split(',').map((t) => t.trim()).filter(Boolean) : [])
+    );
     setProjectLink(proj.link || '');
     setProjectError('');
     setProjectModalVisible(true);
@@ -274,15 +286,18 @@ const ProfileScreen = ({ navigation }) => {
     setProjectError('');
 
     try {
-      const techArray = projectTech
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const techArray = Array.isArray(projectTech)
+        ? projectTech
+        : (projectTech ? projectTech.split(',').map((t) => t.trim()).filter(Boolean) : []);
+
+      const finalDomain = typeof projectDomain === 'string'
+        ? projectDomain.trim()
+        : (Array.isArray(projectDomain) ? projectDomain[0] || '' : '');
 
       const payload = {
         title: trimmedTitle,
         status: projectStatus,
-        domain: projectDomain.trim(),
+        domain: finalDomain,
         description: projectDesc.trim(),
         techStack: techArray,
         link: trimmedLink
@@ -931,6 +946,41 @@ const ProfileScreen = ({ navigation }) => {
         )}
       </View>
 
+      {/* 8. Professional & Research Domains */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>
+          Research & Industry Domains {user.researchDomains ? `(${user.researchDomains.length})` : ''}
+        </Text>
+        {user.researchDomains && user.researchDomains.length > 0 ? (
+          <View style={styles.pillsRow}>
+            {user.researchDomains.map((domain, idx) => (
+              <View
+                key={idx}
+                style={[
+                  styles.pill,
+                  {
+                    backgroundColor: '#E8F5E9',
+                    borderColor: '#C8E6C9',
+                    borderWidth: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center'
+                  }
+                ]}
+              >
+                <Ionicons name="compass-outline" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
+                <Text style={[styles.pillText, { color: COLORS.primaryDark, fontWeight: '600' }]}>
+                  {domain}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.emptyFieldText}>
+            No primary research domains specified yet. Click Edit Profile to add domains.
+          </Text>
+        )}
+      </View>
+
       {/* 8. Research Publications */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>
@@ -1016,12 +1066,12 @@ const ProfileScreen = ({ navigation }) => {
 
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Domain / Field</Text>
-                <TextInput
-                  style={styles.crudInput}
-                  placeholder="e.g. Artificial Intelligence, Earth Science"
-                  placeholderTextColor={COLORS.textLight}
-                  value={topicDomain}
-                  onChangeText={setTopicDomain}
+                <CatalogMultiSelect
+                  type="domain"
+                  singleSelect={true}
+                  selectedValues={topicDomain}
+                  onValuesChange={setTopicDomain}
+                  placeholder="Select research domain (e.g. Healthcare, AI)..."
                 />
               </View>
 
@@ -1040,12 +1090,11 @@ const ProfileScreen = ({ navigation }) => {
 
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Related Skills / Methodologies</Text>
-                <TextInput
-                  style={styles.crudInput}
-                  placeholder="e.g. PyTorch, CUDA, Spatial Statistics (comma separated)"
-                  placeholderTextColor={COLORS.textLight}
-                  value={topicSkills}
-                  onChangeText={setTopicSkills}
+                <CatalogMultiSelect
+                  type="skill"
+                  selectedValues={topicSkills}
+                  onValuesChange={setTopicSkills}
+                  placeholder="Select skills (e.g. PyTorch, CUDA, Spatial Statistics)..."
                 />
               </View>
             </ScrollView>
@@ -1152,12 +1201,12 @@ const ProfileScreen = ({ navigation }) => {
 
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Domain / Field</Text>
-                <TextInput
-                  style={styles.crudInput}
-                  placeholder="e.g. Mobile Computing, Bioinformatics"
-                  placeholderTextColor={COLORS.textLight}
-                  value={projectDomain}
-                  onChangeText={setProjectDomain}
+                <CatalogMultiSelect
+                  type="domain"
+                  singleSelect={true}
+                  selectedValues={projectDomain}
+                  onValuesChange={setProjectDomain}
+                  placeholder="Select project domain (e.g. AI, Climate, Healthcare)..."
                 />
               </View>
 
@@ -1176,12 +1225,11 @@ const ProfileScreen = ({ navigation }) => {
 
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Technologies / Skills</Text>
-                <TextInput
-                  style={styles.crudInput}
-                  placeholder="e.g. React Native, MongoDB, Python (comma separated)"
-                  placeholderTextColor={COLORS.textLight}
-                  value={projectTech}
-                  onChangeText={setProjectTech}
+                <CatalogMultiSelect
+                  type="skill"
+                  selectedValues={projectTech}
+                  onValuesChange={setProjectTech}
+                  placeholder="Select technologies & skills (e.g. React Native, Python, MongoDB)..."
                 />
               </View>
 

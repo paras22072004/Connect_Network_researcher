@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { COLORS, SHADOWS } from '../theme/theme';
 import AvatarPicker from '../components/AvatarPicker';
+import CatalogMultiSelect from '../components/CatalogMultiSelect';
 import { DEFAULT_AVATAR_ID, AVATAR_OPTIONS } from '../constants/avatars';
 
 const ROLE_OPTIONS = [
@@ -46,8 +47,8 @@ const RegisterScreen = ({ navigation }) => {
   const [customRole, setCustomRole] = useState('');
   const [isRoleModalVisible, setIsRoleModalVisible] = useState(false);
   const [organization, setOrganization] = useState('');
-  const [skills, setSkills] = useState('');
-  const [researchInterests, setResearchInterests] = useState('');
+  const [skills, setSkills] = useState([]);
+  const [researchInterests, setResearchInterests] = useState([]);
 
   // UI / validation states
   const [focusedField, setFocusedField] = useState(null);
@@ -115,8 +116,12 @@ const RegisterScreen = ({ navigation }) => {
         profileImage,
         role: finalRole,
         organization: finalOrg,
-        skills: skills ? skills.split(',').map((s) => s.trim()).filter(Boolean) : [],
-        researchInterests: researchInterests ? researchInterests.split(',').map((i) => i.trim()).filter(Boolean) : []
+        skills: Array.isArray(skills)
+          ? skills
+          : (skills ? skills.split(',').map((s) => s.trim()).filter(Boolean) : []),
+        researchInterests: Array.isArray(researchInterests)
+          ? researchInterests
+          : (researchInterests ? researchInterests.split(',').map((i) => i.trim()).filter(Boolean) : [])
       };
 
       const res = await register(userData);
@@ -138,17 +143,6 @@ const RegisterScreen = ({ navigation }) => {
       setLoading(false);
     }
   };
-
-  // Preview chips for skills & interests
-  const skillChips = skills
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const interestChips = researchInterests
-    .split(',')
-    .map((i) => i.trim())
-    .filter(Boolean);
 
   return (
     <KeyboardAvoidingView
@@ -477,92 +471,34 @@ const RegisterScreen = ({ navigation }) => {
             ) : null}
           </View>
 
-          {/* 6. Technical Skills (comma separated) */}
+          {/* 6. Technical Skills (Standardized Catalog) */}
           <View style={styles.inputGroup}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Technical Skills</Text>
-              <Text style={styles.optionalBadge}>Optional</Text>
+              <Text style={styles.optionalBadge}>Standardized</Text>
             </View>
-            <View
-              style={[
-                styles.inputWrapper,
-                focusedField === 'skills' && styles.inputWrapperFocused
-              ]}
-            >
-              <Ionicons
-                name="code-slash-outline"
-                size={18}
-                color={focusedField === 'skills' ? COLORS.primary : COLORS.sage}
-                style={styles.leadingIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Python, PyTorch, React Native, Docker"
-                placeholderTextColor={COLORS.textLight}
-                value={skills}
-                onChangeText={setSkills}
-                onFocus={() => setFocusedField('skills')}
-                onBlur={() => setFocusedField(null)}
-                autoCapitalize="none"
-                returnKeyType="next"
-              />
-            </View>
-            <Text style={styles.helperText}>Separate multiple skills with commas</Text>
-
-            {/* Tag preview chips */}
-            {skillChips.length > 0 && (
-              <View style={styles.chipRow}>
-                {skillChips.map((chip, idx) => (
-                  <View key={`skill-${idx}`} style={styles.skillChip}>
-                    <Text style={styles.skillChipText}>{chip}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+            <CatalogMultiSelect
+              type="skill"
+              selectedValues={skills}
+              onValuesChange={setSkills}
+              placeholder="Search standardized skills (e.g. Python, PyTorch, React)..."
+              helperText="Select canonical skills or suggest new ones for AI matching"
+            />
           </View>
 
-          {/* 7. Research Interests (comma separated) */}
+          {/* 7. Research Interests (Standardized Catalog) */}
           <View style={styles.inputGroup}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Research Interests</Text>
-              <Text style={styles.optionalBadge}>Optional</Text>
+              <Text style={styles.optionalBadge}>Standardized</Text>
             </View>
-            <View
-              style={[
-                styles.inputWrapper,
-                focusedField === 'interests' && styles.inputWrapperFocused
-              ]}
-            >
-              <Ionicons
-                name="sparkles-outline"
-                size={18}
-                color={focusedField === 'interests' ? COLORS.primary : COLORS.sage}
-                style={styles.leadingIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Natural Language Processing, Computer Vision"
-                placeholderTextColor={COLORS.textLight}
-                value={researchInterests}
-                onChangeText={setResearchInterests}
-                onFocus={() => setFocusedField('interests')}
-                onBlur={() => setFocusedField(null)}
-                autoCapitalize="none"
-                returnKeyType="done"
-              />
-            </View>
-            <Text style={styles.helperText}>Separate research topics with commas for AI semantic matching</Text>
-
-            {/* Tag preview chips */}
-            {interestChips.length > 0 && (
-              <View style={styles.chipRow}>
-                {interestChips.map((chip, idx) => (
-                  <View key={`interest-${idx}`} style={styles.interestChip}>
-                    <Text style={styles.interestChipText}>{chip}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+            <CatalogMultiSelect
+              type="interest"
+              selectedValues={researchInterests}
+              onValuesChange={setResearchInterests}
+              placeholder="Search research topics (e.g. NLP, Computer Vision, GNN)..."
+              helperText="Choose canonical research topics to power AI teammate discovery"
+            />
           </View>
 
           {/* Submit Button */}

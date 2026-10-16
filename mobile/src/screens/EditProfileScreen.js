@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { updateUserProfile } from '../services/userService';
 import { COLORS, SHADOWS } from '../theme/theme';
 import AvatarPicker from '../components/AvatarPicker';
+import CatalogMultiSelect from '../components/CatalogMultiSelect';
 import { DEFAULT_AVATAR_ID } from '../constants/avatars';
 
 const EditProfileScreen = ({ navigation }) => {
@@ -27,13 +28,19 @@ const EditProfileScreen = ({ navigation }) => {
   const [organization, setOrganization] = useState(user?.organization || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [skills, setSkills] = useState(
-    Array.isArray(user?.skills) ? user.skills.join(', ') : ''
+    Array.isArray(user?.skills)
+      ? user.skills
+      : (user?.skills ? user.skills.split(',').map((s) => s.trim()).filter(Boolean) : [])
   );
   const [researchInterests, setResearchInterests] = useState(
-    Array.isArray(user?.researchInterests) ? user.researchInterests.join(', ') : ''
+    Array.isArray(user?.researchInterests)
+      ? user.researchInterests
+      : (user?.researchInterests ? user.researchInterests.split(',').map((i) => i.trim()).filter(Boolean) : [])
   );
   const [researchDomains, setResearchDomains] = useState(
-    Array.isArray(user?.researchDomains) ? user.researchDomains.join(', ') : ''
+    Array.isArray(user?.researchDomains)
+      ? user.researchDomains
+      : (user?.researchDomains ? user.researchDomains.split(',').map((d) => d.trim()).filter(Boolean) : [])
   );
 
   // Publications & Projects
@@ -50,7 +57,7 @@ const EditProfileScreen = ({ navigation }) => {
   const [showProjModal, setShowProjModal] = useState(false);
   const [projTitle, setProjTitle] = useState('');
   const [projDesc, setProjDesc] = useState('');
-  const [projTech, setProjTech] = useState('');
+  const [projTech, setProjTech] = useState([]);
   const [projLink, setProjLink] = useState('');
 
   const [loading, setLoading] = useState(false);
@@ -90,14 +97,16 @@ const EditProfileScreen = ({ navigation }) => {
       {
         title: projTitle.trim(),
         description: projDesc.trim(),
-        techStack: projTech.split(',').map((s) => s.trim()).filter(Boolean),
+        techStack: Array.isArray(projTech)
+          ? projTech
+          : (projTech ? projTech.split(',').map((s) => s.trim()).filter(Boolean) : []),
         link: projLink.trim()
       }
     ]);
     setShowProjModal(false);
     setProjTitle('');
     setProjDesc('');
-    setProjTech('');
+    setProjTech([]);
     setProjLink('');
   };
 
@@ -120,9 +129,15 @@ const EditProfileScreen = ({ navigation }) => {
         role,
         organization,
         bio,
-        skills,
-        researchInterests,
-        researchDomains,
+        skills: Array.isArray(skills)
+          ? skills
+          : (skills ? skills.split(',').map((s) => s.trim()).filter(Boolean) : []),
+        researchInterests: Array.isArray(researchInterests)
+          ? researchInterests
+          : (researchInterests ? researchInterests.split(',').map((i) => i.trim()).filter(Boolean) : []),
+        researchDomains: Array.isArray(researchDomains)
+          ? researchDomains
+          : (researchDomains ? researchDomains.split(',').map((d) => d.trim()).filter(Boolean) : []),
         publications,
         projects
       };
@@ -219,35 +234,35 @@ const EditProfileScreen = ({ navigation }) => {
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Technical Skills (comma separated)</Text>
-          <TextInput
-            style={styles.input}
-            value={skills}
-            onChangeText={setSkills}
-            placeholder="Python, PyTorch, Transformers, MLOps, CUDA"
-            placeholderTextColor={COLORS.textLight}
+          <Text style={styles.label}>Technical Skills</Text>
+          <CatalogMultiSelect
+            type="skill"
+            selectedValues={skills}
+            onValuesChange={setSkills}
+            placeholder="Search standardized skills (e.g. Python, PyTorch, React)..."
+            helperText="Standardized skills used for AI compatibility scoring"
           />
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Research Interests (comma separated)</Text>
-          <TextInput
-            style={styles.input}
-            value={researchInterests}
-            onChangeText={setResearchInterests}
-            placeholder="Machine Learning, Computer Vision, Foundation Models"
-            placeholderTextColor={COLORS.textLight}
+          <Text style={styles.label}>Research Interests</Text>
+          <CatalogMultiSelect
+            type="interest"
+            selectedValues={researchInterests}
+            onValuesChange={setResearchInterests}
+            placeholder="Search research topics (e.g. NLP, Computer Vision, GNN)..."
+            helperText="Canonical research topics powering semantic AI recommendations"
           />
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Research Domains (comma separated)</Text>
-          <TextInput
-            style={styles.input}
-            value={researchDomains}
-            onChangeText={setResearchDomains}
-            placeholder="Healthcare AI, Distributed Systems, Computational Genomics"
-            placeholderTextColor={COLORS.textLight}
+          <Text style={styles.label}>Professional & Research Domains</Text>
+          <CatalogMultiSelect
+            type="domain"
+            selectedValues={researchDomains}
+            onValuesChange={setResearchDomains}
+            placeholder="Search domains (e.g. Healthcare, AI, Climate)..."
+            helperText="Primary industry and research domains"
           />
         </View>
 
@@ -315,7 +330,7 @@ const EditProfileScreen = ({ navigation }) => {
           {loading ? (
             <ActivityIndicator color={COLORS.textWhite} />
           ) : (
-            <Text style={styles.saveBtnText}>Save Profile & Update </Text>
+            <Text style={styles.saveBtnText}>Save Profile</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -400,13 +415,12 @@ const EditProfileScreen = ({ navigation }) => {
               multiline
             />
 
-            <Text style={styles.label}>Tech Stack (comma separated)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="ROS2, C++, PyTorch, LiDAR"
-              placeholderTextColor={COLORS.textLight}
-              value={projTech}
-              onChangeText={setProjTech}
+            <Text style={styles.label}>Technologies / Skills</Text>
+            <CatalogMultiSelect
+              type="skill"
+              selectedValues={projTech}
+              onValuesChange={setProjTech}
+              placeholder="Search technologies & skills (e.g. Python, ROS2, PyTorch)..."
             />
 
             <Text style={styles.label}>Project Link (GitHub / Demo)</Text>

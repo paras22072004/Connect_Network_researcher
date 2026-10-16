@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { updateUserEmbedding } = require('../services/aiEmbeddingService');
+const { normalizeList, resolveToCanonical } = require('../services/catalogService');
 
 /**
  * @desc    Get logged in user profile
@@ -64,9 +65,9 @@ const updateUserProfile = async (req, res) => {
     if (organization !== undefined) user.organization = organization;
     if (bio !== undefined) user.bio = bio;
 
-    if (skills !== undefined) user.skills = parseArray(skills);
+    if (skills !== undefined) user.skills = normalizeList('skill', parseArray(skills) || [], { namesOnly: true });
     if (expertise !== undefined) user.expertise = parseArray(expertise);
-    if (researchDomains !== undefined) user.researchDomains = parseArray(researchDomains);
+    if (researchDomains !== undefined) user.researchDomains = normalizeList('domain', parseArray(researchDomains) || [], { namesOnly: true });
 
     // Handle researchTopics and researchInterests
     if (researchTopics !== undefined) {
@@ -82,19 +83,23 @@ const updateUserProfile = async (req, res) => {
             return res.status(400).json({ success: false, message: `Duplicate research topic: "${t.title.trim()}"` });
           }
           seenTitles.add(titleLower);
+
+          const canonicalDomain = resolveToCanonical('domain', t.domain)?.name || (t.domain || '').trim();
+          const cleanSkills = normalizeList('skill', Array.isArray(t.skills) ? t.skills : (typeof t.skills === 'string' ? t.skills.split(',') : []), { namesOnly: true });
+
           cleanTopics.push({
             _id: t._id,
             title: t.title.trim(),
-            domain: (t.domain || '').trim(),
+            domain: canonicalDomain,
             description: (t.description || '').trim(),
-            skills: Array.isArray(t.skills) ? t.skills.map(s => String(s).trim()).filter(Boolean) : (typeof t.skills === 'string' ? t.skills.split(',').map(s => s.trim()).filter(Boolean) : [])
+            skills: cleanSkills
           });
         }
         user.researchTopics = cleanTopics;
         user.researchInterests = cleanTopics.map(t => t.title);
       }
     } else if (researchInterests !== undefined) {
-      const parsed = parseArray(researchInterests);
+      const parsed = normalizeList('interest', parseArray(researchInterests) || [], { namesOnly: true });
       user.researchInterests = parsed;
       // If user had no researchTopics, populate basic entries
       if (!Array.isArray(user.researchTopics) || user.researchTopics.length === 0) {
@@ -129,12 +134,15 @@ const updateUserProfile = async (req, res) => {
             return res.status(400).json({ success: false, message: `Invalid project URL for "${p.title.trim()}". Please provide a valid link (e.g. https://github.com/...)` });
           }
 
+          const canonicalDomain = resolveToCanonical('domain', p.domain)?.name || (p.domain || '').trim();
+          const cleanTech = normalizeList('skill', Array.isArray(p.techStack) ? p.techStack : (typeof p.techStack === 'string' ? p.techStack.split(',') : []), { namesOnly: true });
+
           cleanProjects.push({
             _id: p._id,
             title: p.title.trim(),
             description: (p.description || '').trim(),
-            domain: (p.domain || '').trim(),
-            techStack: Array.isArray(p.techStack) ? p.techStack.map(s => String(s).trim()).filter(Boolean) : (typeof p.techStack === 'string' ? p.techStack.split(',').map(s => s.trim()).filter(Boolean) : []),
+            domain: canonicalDomain,
+            techStack: cleanTech,
             status: p.status || 'In Progress',
             link
           });
@@ -294,11 +302,14 @@ const addProject = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide a valid project URL (e.g. https://github.com/...)' });
     }
 
+    const canonicalDomain = resolveToCanonical('domain', domain)?.name || (domain || '').trim();
+    const cleanTech = normalizeList('skill', Array.isArray(techStack) ? techStack : (typeof techStack === 'string' ? techStack.split(',') : []), { namesOnly: true });
+
     const newProject = {
       title: titleTrimmed,
       description: (description || '').trim(),
-      domain: (domain || '').trim(),
-      techStack: Array.isArray(techStack) ? techStack.map(s => String(s).trim()).filter(Boolean) : (typeof techStack === 'string' ? techStack.split(',').map(s => s.trim()).filter(Boolean) : []),
+      domain: canonicalDomain,
+      techStack: cleanTech,
       status: status || 'In Progress',
       link: trimmedLink
     };
@@ -346,9 +357,9 @@ const updateProject = async (req, res) => {
     }
 
     if (description !== undefined) project.description = description.trim();
-    if (domain !== undefined) project.domain = domain.trim();
+    if (domain !== undefined) project.domain = resolveToCanonical('domain', domain)?.name || domain.trim();
     if (techStack !== undefined) {
-      project.techStack = Array.isArray(techStack) ? techStack.map(s => String(s).trim()).filter(Boolean) : (typeof techStack === 'string' ? techStack.split(',').map(s => s.trim()).filter(Boolean) : []);
+      project.techStack = normalizeList('skill', Array.isArray(techStack) ? techStack : (typeof techStack === 'string' ? techStack.split(',') : []), { namesOnly: true });
     }
     if (status !== undefined) project.status = status;
     if (link !== undefined) {
@@ -418,11 +429,14 @@ const addResearchTopic = async (req, res) => {
       return res.status(400).json({ success: false, message: 'A research topic with this title already exists.' });
     }
 
+    const canonicalDomain = resolveToCanonical('domain', domain)?.name || (domain || '').trim();
+    const cleanSkills = normalizeList('skill', Array.isArray(skills) ? skills : (typeof skills === 'string' ? skills.split(',') : []), { namesOnly: true });
+
     const newTopic = {
       title: titleTrimmed,
-      domain: (domain || '').trim(),
+      domain: canonicalDomain,
       description: (description || '').trim(),
-      skills: Array.isArray(skills) ? skills.map(s => String(s).trim()).filter(Boolean) : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : [])
+      skills: cleanSkills
     };
 
     user.researchTopics.push(newTopic);
@@ -468,10 +482,10 @@ const updateResearchTopic = async (req, res) => {
       topic.title = titleTrimmed;
     }
 
-    if (domain !== undefined) topic.domain = domain.trim();
+    if (domain !== undefined) topic.domain = resolveToCanonical('domain', domain)?.name || domain.trim();
     if (description !== undefined) topic.description = description.trim();
     if (skills !== undefined) {
-      topic.skills = Array.isArray(skills) ? skills.map(s => String(s).trim()).filter(Boolean) : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : []);
+      topic.skills = normalizeList('skill', Array.isArray(skills) ? skills : (typeof skills === 'string' ? skills.split(',') : []), { namesOnly: true });
     }
 
     user.researchInterests = user.researchTopics.map(t => t.title);

@@ -12,6 +12,7 @@ const {
   cosineSimilarity,
   normalizeSemanticScore
 } = require('./aiEmbeddingService');
+const { normalizeList } = require('./catalogService');
 
 /**
  * Configurable weights for the hybrid matching formula
@@ -24,22 +25,49 @@ const MATCH_WEIGHTS = {
 };
 
 /**
- * Case-insensitive array string matching helper.
+ * Standardized Canonical Overlap Resolution.
+ * Maps raw inputs to their canonical IDs, handles aliases, and counts each unique canonical entry once.
  */
+const findCanonicalOverlap = (type, arr1 = [], arr2 = []) => {
+  if (!Array.isArray(arr1) || !Array.isArray(arr2) || arr1.length === 0 || arr2.length === 0) {
+    return { commonCanonical: [], count: 0 };
+  }
+
+  const itemsA = normalizeList(type, arr1, { namesOnly: false });
+  const itemsB = normalizeList(type, arr2, { namesOnly: false });
+
+  const mapA = new Map();
+  itemsA.forEach((item) => mapA.set(item.id, item.name));
+
+  const matchedSet = new Set();
+  const commonNames = [];
+
+  itemsB.forEach((item) => {
+    if (mapA.has(item.id) && !matchedSet.has(item.id)) {
+      matchedSet.add(item.id);
+      commonNames.push(mapA.get(item.id));
+    }
+  });
+
+  return {
+    commonCanonical: commonNames,
+    count: matchedSet.size
+  };
+};
+
+// Backward-compatible alias for existing callers
 const findOverlap = (arr1 = [], arr2 = []) => {
-  if (!Array.isArray(arr1) || !Array.isArray(arr2)) return [];
-  const set1 = new Set(arr1.map(item => String(item).toLowerCase().trim()));
-  return arr2.filter(item => set1.has(String(item).toLowerCase().trim()));
+  return findCanonicalOverlap('skill', arr1, arr2).commonCanonical;
 };
 
 /**
- * Calculates Skill Compatibility Score (0-100).
+ * Calculates Skill Compatibility Score (0-100) using deduplicated canonical skills.
  */
 const calculateSkillScore = (userA, userB, commonSkills = []) => {
-  const skillsA = Array.isArray(userA.skills) ? userA.skills : [];
-  const skillsB = Array.isArray(userB.skills) ? userB.skills : [];
+  const normA = normalizeList('skill', userA.skills || [], { namesOnly: false });
+  const normB = normalizeList('skill', userB.skills || [], { namesOnly: false });
 
-  if (skillsA.length === 0 && skillsB.length === 0) {
+  if (normA.length === 0 && normB.length === 0) {
     // If neither user listed skills, evaluate role match
     if (userA.role && userB.role && userA.role.toLowerCase() === userB.role.toLowerCase()) {
       return 60;
@@ -47,12 +75,12 @@ const calculateSkillScore = (userA, userB, commonSkills = []) => {
     return 30;
   }
 
-  const allSkills = new Set([
-    ...skillsA.map(s => s.toLowerCase().trim()),
-    ...skillsB.map(s => s.toLowerCase().trim())
+  const allSkillIds = new Set([
+    ...normA.map((s) => s.id),
+    ...normB.map((s) => s.id)
   ]);
 
-  const jaccard = allSkills.size > 0 ? (commonSkills.length / allSkills.size) : 0;
+  const jaccard = allSkillIds.size > 0 ? (commonSkills.length / allSkillIds.size) : 0;
 
   // Tiered count score
   let countScore = 0;
@@ -73,15 +101,25 @@ const calculateSkillScore = (userA, userB, commonSkills = []) => {
 };
 
 /**
- * Calculates Research Compatibility Score (0-100).
+ * Calculates Research Compatibility Score (0-100) using canonical research topics and domains.
  */
 const calculateResearchScore = (userA, userB, commonInterests = [], commonDomains = []) => {
-  const interestsA = Array.isArray(userA.researchInterests) ? userA.researchInterests : [];
-  const interestsB = Array.isArray(userB.researchInterests) ? userB.researchInterests : [];
-  const domainsA = Array.isArray(userA.researchDomains) ? userA.researchDomains : [];
-  const domainsB = Array.isArray(userB.researchDomains) ? userB.researchDomains : [];
+  // Aggregate research interests and structured research topics
+  const rawInterestsA = [
+    ...(userA.researchInterests || []),
+    ...((userA.researchTopics || []).map((t) => t.title))
+  ];
+  const rawInterestsB = [
+    ...(userB.researchInterests || []),
+    ...((userB.researchTopics || []).map((t) => t.title))
+  ];
 
-  const totalPossible = interestsA.length + interestsB.length + domainsA.length + domainsB.length;
+  const normInterestsA = normalizeList('interest', rawInterestsA, { namesOnly: false });
+  const normInterestsB = normalizeList('interest', rawInterestsB, { namesOnly: false });
+  const normDomainsA = normalizeList('domain', userA.researchDomains || [], { namesOnly: false });
+  const normDomainsB = normalizeList('domain', userB.researchDomains || [], { namesOnly: false });
+
+  const totalPossible = normInterestsA.length + normInterestsB.length + normDomainsA.length + normDomainsB.length;
   if (totalPossible === 0) {
     return 30; // Neutral baseline when research data not specified
   }
@@ -135,9 +173,19 @@ const calculateMatchScore = (userA, userB, options = {}) => {
     };
   }
 
-  const commonSkills = findOverlap(userA.skills, userB.skills);
-  const commonInterests = findOverlap(userA.researchInterests, userB.researchInterests);
-  const commonDomains = findOverlap(userA.researchDomains, userB.researchDomains);
+  const { commonCanonical: commonSkills } = findCanonicalOverlap('skill', userA.skills, userB.skills);
+
+  const rawInterestsA = [
+    ...(userA.researchInterests || []),
+    ...((userA.researchTopics || []).map((t) => t.title))
+  ];
+  const rawInterestsB = [
+    ...(userB.researchInterests || []),
+    ...((userB.researchTopics || []).map((t) => t.title))
+  ];
+  const { commonCanonical: commonInterests } = findCanonicalOverlap('interest', rawInterestsA, rawInterestsB);
+
+  const { commonCanonical: commonDomains } = findCanonicalOverlap('domain', userA.researchDomains, userB.researchDomains);
 
   // 1. AI SEMANTIC SIMILARITY (60% Weight)
   const vecA = options.vecA || userA.aiProfileEmbedding;
@@ -230,5 +278,7 @@ module.exports = {
   calculateMatchScore,
   calculateSkillScore,
   calculateResearchScore,
-  calculateLocationScore
+  calculateLocationScore,
+  findCanonicalOverlap,
+  findOverlap
 };
