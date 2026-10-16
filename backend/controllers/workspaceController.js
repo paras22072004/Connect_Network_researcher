@@ -648,7 +648,8 @@ const getWorkspaceMessages = async (req, res) => {
 
     return res.json({
       success: true,
-      discussions: workspace.discussions || []
+      discussions: workspace.discussions || [],
+      messages: workspace.discussions || []
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -692,9 +693,20 @@ const postWorkspaceMessage = async (req, res) => {
 
     const createdMsg = populated.discussions[populated.discussions.length - 1];
 
+    // Broadcast in real-time to workspace room if Socket.io is active
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`workspace_${workspace._id}`).emit('receive_workspace_message', createdMsg);
+      }
+    } catch (ioErr) {
+      console.warn('[Socket broadcast workspace message warning]:', ioErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Message posted.',
+      discussion: createdMsg,
       data: createdMsg
     });
   } catch (error) {

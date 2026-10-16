@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Image,
@@ -33,6 +34,7 @@ import {
 } from '../services/workspaceService';
 import { getAcceptedConnections } from '../services/connectionService';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import LoadingView from '../components/LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
 import { COLORS, SHADOWS } from '../theme/theme';
@@ -64,12 +66,13 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
   const [connections, setConnections] = useState([]);
   const [loadingConnections, setLoadingConnections] = useState(false);
 
-  // Discussion / Group Chat State
+  // Discussion / Group Chat State & Socket.io
+  const { socket } = useSocket();
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
-  const chatScrollRef = useRef(null);
+  const chatListRef = useRef(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [actionNotice, setActionNotice] = useState(null);
@@ -99,8 +102,12 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     setLoadingMessages(true);
     try {
       const res = await getWorkspaceMessagesApi(workspaceId);
-      if (res.success) {
-        setMessages(res.messages || []);
+      if (res && res.success) {
+        const msgList = res.discussions || res.messages || res.data || [];
+        setMessages(msgList);
+        setTimeout(() => {
+          chatListRef.current?.scrollToEnd({ animated: false });
+        }, 150);
       }
     } catch (err) {
       console.error('Fetch messages error:', err);
@@ -115,8 +122,49 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     }
   }, [workspaceId]);
 
+  // Subscribe to real-time Socket.io workspace room
   useEffect(() => {
-    if (workspaceId && activeTab === 'discussion') {
+    if (!socket || !workspaceId) return;
+
+    socket.emit('join_workspace_room', workspaceId);
+
+    const handleIncomingMessage = (newMsg) => {
+      if (!newMsg) return;
+      setMessages((prev) => {
+        const exists = prev.some(
+          (m) =>
+            (m._id && newMsg._id && m._id === newMsg._id) ||
+            (m.tempId && newMsg.tempId && m.tempId === newMsg.tempId) ||
+            (m.content === newMsg.content &&
+             (m.sender?._id === newMsg.sender?._id || m.sender === newMsg.sender?._id) &&
+             Math.abs(new Date(m.createdAt || 0) - new Date(newMsg.createdAt || 0)) < 2500)
+        );
+        if (exists) {
+          return prev.map((m) =>
+            (m._id && newMsg._id && m._id === newMsg._id) ||
+            (m.tempId && newMsg.tempId && m.tempId === newMsg.tempId)
+              ? newMsg
+              : m
+          );
+        }
+        return [...prev, newMsg];
+      });
+
+      setTimeout(() => {
+        chatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    };
+
+    socket.on('receive_workspace_message', handleIncomingMessage);
+
+    return () => {
+      socket.emit('leave_workspace_room', workspaceId);
+      socket.off('receive_workspace_message', handleIncomingMessage);
+    };
+  }, [socket, workspaceId]);
+
+  useEffect(() => {
+    if (workspaceId && (activeTab === 'chat' || activeTab === 'discussion')) {
       fetchMessages();
     }
   }, [workspaceId, activeTab]);
@@ -368,23 +416,57 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     );
   };
 
-  // Send Group Discussion Message
+  // Send Group Discussion Message via Socket.io / REST fallback
   const handleSendMessage = async () => {
-    if (!messageText.trim()) return;
-    setSendingMessage(true);
-    try {
-      const res = await postWorkspaceMessageApi(workspaceId, messageText.trim());
-      if (res.success) {
-        setMessages((prev) => [...prev, res.message]);
-        setMessageText('');
-        setTimeout(() => {
-          chatScrollRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+    const trimmed = messageText.trim();
+    if (!trimmed || sendingMessage) return;
+
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMsg = {
+      _id: tempId,
+      tempId,
+      content: trimmed,
+      sender: {
+        _id: currentUser?._id,
+        name: currentUser?.name || 'You',
+        profileImage: currentUser?.profileImage
+      },
+      createdAt: new Date().toISOString()
+    };
+
+    // Optimistic local state append
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setMessageText('');
+    setTimeout(() => {
+      chatListRef.current?.scrollToEnd({ animated: true });
+    }, 50);
+
+    // If socket is connected, emit real-time event
+    if (socket && socket.connected) {
+      socket.emit('send_workspace_message', {
+        workspaceId,
+        content: trimmed
+      });
+    } else {
+      // REST API fallback
+      try {
+        setSendingMessage(true);
+        const res = await postWorkspaceMessageApi(workspaceId, trimmed);
+        if (res && res.success) {
+          const savedMsg = res.discussion || res.data || res.message;
+          if (savedMsg) {
+            setMessages((prev) =>
+              prev.map((m) => (m._id === tempId || m.tempId === tempId ? savedMsg : m))
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Send message error:', err);
+        Alert.alert('Error', err.message || 'Could not send message.');
+        setMessages((prev) => prev.filter((m) => m._id !== tempId && m.tempId !== tempId));
+      } finally {
+        setSendingMessage(false);
       }
-    } catch (err) {
-      Alert.alert('Error', err.message || 'Could not send message.');
-    } finally {
-      setSendingMessage(false);
     }
   };
 
@@ -401,6 +483,19 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     Boolean(workspace.isOwner) ||
     workspace.owner?._id?.toString() === currentUser?._id?.toString();
 
+  const tasksCount = workspace.tasks?.length || 0;
+  const milestonesCount = workspace.milestones?.length || 0;
+  const notesCount = workspace.notes?.length || 0;
+  const membersCount = workspace.members?.length || 0;
+
+  const tabItems = [
+    { id: 'tasks', label: tasksCount > 0 ? `Tasks (${tasksCount})` : 'Tasks' },
+    { id: 'milestones', label: milestonesCount > 0 ? `Milestones (${milestonesCount})` : 'Milestones' },
+    { id: 'notes', label: notesCount > 0 ? `Notes (${notesCount})` : 'Notes' },
+    { id: 'members', label: membersCount > 0 ? `Team (${membersCount})` : 'Team' },
+    { id: 'chat', label: 'Chat' }
+  ];
+
   return (
     <View style={styles.container}>
       {/* Top Banner Notice */}
@@ -415,9 +510,9 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Text style={styles.title} numberOfLines={1}>{workspace.title}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={styles.headerRightActions}>
             <View style={styles.statusPill}>
-              <Text style={styles.statusPillText}>{workspace.status}</Text>
+              <Text style={styles.statusPillText}>{workspace.status || 'Active'}</Text>
             </View>
             {isOwner && (
               <TouchableOpacity
@@ -446,87 +541,32 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
         </View>
       </View>
 
-      {/* Tabs Bar */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'tasks' ? styles.tabBtnActive : null]}
-          onPress={() => setActiveTab('tasks')}
-          activeOpacity={0.8}
+      {/* Horizontal Sub-Tabs Bar (No icons, conditional zero-count formatting) */}
+      <View style={styles.tabBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabBarScroll}
         >
-          <Ionicons
-            name="checkbox-outline"
-            size={14}
-            color={activeTab === 'tasks' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 3 }}
-          />
-          <Text style={[styles.tabBtnText, activeTab === 'tasks' ? styles.tabBtnTextActive : null]}>
-            Tasks ({workspace.tasks?.length || 0})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'milestones' ? styles.tabBtnActive : null]}
-          onPress={() => setActiveTab('milestones')}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="flag-outline"
-            size={14}
-            color={activeTab === 'milestones' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 3 }}
-          />
-          <Text style={[styles.tabBtnText, activeTab === 'milestones' ? styles.tabBtnTextActive : null]}>
-            Milestones ({workspace.milestones?.length || 0})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'notes' ? styles.tabBtnActive : null]}
-          onPress={() => setActiveTab('notes')}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="document-text-outline"
-            size={14}
-            color={activeTab === 'notes' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 3 }}
-          />
-          <Text style={[styles.tabBtnText, activeTab === 'notes' ? styles.tabBtnTextActive : null]}>
-            Notes ({workspace.notes?.length || 0})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'members' ? styles.tabBtnActive : null]}
-          onPress={() => setActiveTab('members')}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="people-outline"
-            size={14}
-            color={activeTab === 'members' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 3 }}
-          />
-          <Text style={[styles.tabBtnText, activeTab === 'members' ? styles.tabBtnTextActive : null]}>
-            Team ({workspace.members?.length || 0})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'discussion' ? styles.tabBtnActive : null]}
-          onPress={() => setActiveTab('discussion')}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name="chatbubbles-outline"
-            size={14}
-            color={activeTab === 'discussion' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 3 }}
-          />
-          <Text style={[styles.tabBtnText, activeTab === 'discussion' ? styles.tabBtnTextActive : null]}>
-            Chat
-          </Text>
-        </TouchableOpacity>
+          {tabItems.map((tab) => {
+            const isActive = activeTab === tab.id || (tab.id === 'chat' && activeTab === 'discussion');
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+                onPress={() => setActiveTab(tab.id)}
+                activeOpacity={0.7}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={tab.label}
+              >
+                <Text style={[styles.tabBtnText, isActive && styles.tabBtnTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* 1. TASKS TAB */}
@@ -794,63 +834,81 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
       ) : null}
 
       {/* 5. DISCUSSION / GROUP CHAT TAB */}
-      {activeTab === 'discussion' ? (
+      {(activeTab === 'chat' || activeTab === 'discussion') ? (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-          keyboardVerticalOffset={80}
+          style={styles.chatKeyboardContainer}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
           <View style={styles.chatContainer}>
-            {loadingMessages ? (
-              <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 20 }} />
+            {loadingMessages && messages.length === 0 ? (
+              <View style={styles.chatLoadingCenter}>
+                <ActivityIndicator size="small" color={COLORS.primary || '#4F46E5'} />
+                <Text style={styles.chatLoadingText}>Loading team conversation...</Text>
+              </View>
             ) : messages.length === 0 ? (
               <EmptyStateView
                 title="Workspace Group Chat"
-                description="Coordinate with team members, discuss findings, and share quick updates here."
+                description="Coordinate with team members, discuss findings, and share quick updates here in real time."
               />
             ) : (
-              <ScrollView
-                ref={chatScrollRef}
-                style={styles.chatScroll}
-                contentContainerStyle={styles.chatScrollContent}
+              <FlatList
+                ref={chatListRef}
+                data={messages}
+                keyExtractor={(item, index) => item._id || item.tempId || `msg_${index}`}
+                contentContainerStyle={styles.chatListContent}
                 showsVerticalScrollIndicator={false}
-                onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
-              >
-                {messages.map((msg, idx) => {
+                onContentSizeChange={() => chatListRef.current?.scrollToEnd({ animated: true })}
+                onLayout={() => chatListRef.current?.scrollToEnd({ animated: false })}
+                renderItem={({ item: msg }) => {
                   const isMine =
                     msg.sender?._id?.toString() === currentUser?._id?.toString() ||
-                    msg.sender === currentUser?._id?.toString();
-                  const senderName = msg.sender?.name || 'Teammate';
-                  const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    msg.sender?.toString() === currentUser?._id?.toString();
+                  const senderName = isMine ? 'You' : (msg.sender?.name || 'Teammate');
+                  const avatarUri =
+                    msg.sender?.profileImage ||
+                    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
+                  const time = msg.createdAt
+                    ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '';
 
                   return (
                     <View
-                      key={msg._id || idx}
-                      style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}
+                      style={[
+                        styles.messageRow,
+                        isMine ? styles.messageRowMine : styles.messageRowOther
+                      ]}
                     >
                       {!isMine && (
-                        <Image
-                          source={{
-                            uri:
-                              msg.sender?.profileImage ||
-                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
-                          }}
-                          style={styles.chatAvatar}
-                        />
+                        <Image source={{ uri: avatarUri }} style={styles.chatAvatar} />
                       )}
                       <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
-                        {!isMine && <Text style={styles.chatSenderName}>{senderName}</Text>}
-                        <Text style={[styles.chatContentText, isMine ? styles.chatContentMine : styles.chatContentOther]}>
+                        {!isMine && (
+                          <Text style={styles.chatSenderName}>{senderName}</Text>
+                        )}
+                        <Text
+                          style={[
+                            styles.chatContentText,
+                            isMine ? styles.chatContentMine : styles.chatContentOther
+                          ]}
+                        >
                           {msg.content}
                         </Text>
-                        <Text style={[styles.chatTimeText, isMine ? styles.chatTimeMine : styles.chatTimeOther]}>
-                          {time}
-                        </Text>
+                        {time ? (
+                          <Text
+                            style={[
+                              styles.chatTimeText,
+                              isMine ? styles.chatTimeMine : styles.chatTimeOther
+                            ]}
+                          >
+                            {time}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
                   );
-                })}
-              </ScrollView>
+                }}
+              />
             )}
 
             {/* Chat Input Bar */}
@@ -860,7 +918,7 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                 value={messageText}
                 onChangeText={setMessageText}
                 placeholder="Type a team message..."
-                placeholderTextColor={COLORS.textLight}
+                placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                 multiline
                 maxLength={500}
               />
@@ -868,7 +926,9 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                 style={[styles.btnSend, !messageText.trim() && styles.btnSendDisabled]}
                 onPress={handleSendMessage}
                 disabled={!messageText.trim() || sendingMessage}
-                activeOpacity={0.8}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Send Message"
               >
                 {sendingMessage ? (
                   <ActivityIndicator size="small" color="#ffffff" />
@@ -1103,11 +1163,23 @@ const styles = StyleSheet.create({
     flex: 1
   },
   header: {
-    backgroundColor: COLORS.bgCard,
-    padding: 16,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 14 : 16,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    ...SHADOWS.sm
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2
+      },
+      android: {
+        elevation: 1
+      }
+    })
   },
   headerRow: {
     flexDirection: 'row',
@@ -1116,22 +1188,30 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   title: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
-    color: COLORS.textMain,
+    color: COLORS.textMain || '#111827',
     flex: 1,
-    marginRight: 8
+    marginRight: 10
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
   },
   statusPill: {
-    backgroundColor: COLORS.primaryLight,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6
+    backgroundColor: COLORS.primaryLight || '#EEF2FF',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 70, 229, 0.12)'
   },
   statusPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.primary
+    color: COLORS.primary || '#4F46E5',
+    textTransform: 'capitalize'
   },
   desc: {
     fontSize: 13,
@@ -1159,32 +1239,37 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 3
   },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.bgCard,
+  tabBarContainer: {
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    paddingHorizontal: 6
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+    paddingVertical: 8
   },
-  tabBtn: {
-    flex: 1,
+  tabBarScroll: {
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 11,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent'
+    gap: 8
+  },
+  tabBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: COLORS.bgInput || '#F2F2F7',
+    borderWidth: 1,
+    borderColor: 'transparent'
   },
   tabBtnActive: {
-    borderBottomColor: COLORS.primary
+    backgroundColor: COLORS.primaryLight || '#EEF2FF',
+    borderColor: COLORS.primary || '#4F46E5'
   },
   tabBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: COLORS.textMuted
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.textMuted || '#6B7280'
   },
   tabBtnTextActive: {
-    color: COLORS.primary,
+    color: COLORS.primary || '#4F46E5',
     fontWeight: '700'
   },
   scroll: {
@@ -1417,108 +1502,122 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontWeight: '600'
   },
+  chatKeyboardContainer: {
+    flex: 1,
+    backgroundColor: COLORS.bgMain || '#F9FAFB'
+  },
   chatContainer: {
     flex: 1,
-    backgroundColor: COLORS.bgMain
+    backgroundColor: COLORS.bgMain || '#F9FAFB'
   },
-  chatScroll: {
-    flex: 1
+  chatLoadingCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20
   },
-  chatScrollContent: {
-    padding: 14,
-    paddingBottom: 20
+  chatLoadingText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: COLORS.textMuted || '#6B7280'
+  },
+  chatListContent: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 16
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: 12,
-    maxWidth: '85%'
+    marginBottom: 10,
+    maxWidth: '82%'
   },
   messageRowMine: {
     alignSelf: 'flex-end',
     justifyContent: 'flex-end'
   },
   messageRowOther: {
-    alignSelf: 'flex-start'
+    alignSelf: 'flex-start',
+    alignItems: 'flex-end'
   },
   chatAvatar: {
     width: 32,
     height: 32,
     borderRadius: 16,
     marginRight: 8,
-    alignSelf: 'flex-end'
+    backgroundColor: COLORS.bgInput || '#E5E7EB'
   },
   bubble: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 14
+    borderRadius: 16
   },
   bubbleMine: {
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 2
+    backgroundColor: COLORS.primary || '#4F46E5',
+    borderBottomRightRadius: 3
   },
   bubbleOther: {
-    backgroundColor: COLORS.bgCard,
-    borderBottomLeftRadius: 2,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    borderBottomLeftRadius: 3,
     borderWidth: 1,
-    borderColor: COLORS.border
+    borderColor: 'rgba(0,0,0,0.06)'
   },
   chatSenderName: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.primary,
+    color: COLORS.primary || '#4F46E5',
     marginBottom: 2
   },
   chatContentText: {
-    fontSize: 13,
-    lineHeight: 18
+    fontSize: 14,
+    lineHeight: 20
   },
   chatContentMine: {
     color: '#ffffff'
   },
   chatContentOther: {
-    color: COLORS.textMain
+    color: COLORS.textMain || '#111827'
   },
   chatTimeText: {
     fontSize: 9,
     alignSelf: 'flex-end',
-    marginTop: 4
+    marginTop: 3
   },
   chatTimeMine: {
-    color: 'rgba(255,255,255,0.7)'
+    color: 'rgba(255,255,255,0.75)'
   },
   chatTimeOther: {
-    color: COLORS.textLight
+    color: COLORS.textLight || '#9CA3AF'
   },
   chatInputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.bgCard,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: COLORS.border
+    borderTopColor: 'rgba(0,0,0,0.06)'
   },
   chatTextInput: {
     flex: 1,
-    backgroundColor: COLORS.bgInput,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
     borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 13,
-    maxHeight: 80,
-    color: COLORS.textMain
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+    fontSize: 14,
+    maxHeight: 100,
+    color: COLORS.textMain || '#111827'
   },
   btnSend: {
-    backgroundColor: COLORS.primary,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    backgroundColor: COLORS.primary || '#4F46E5',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8
   },
   btnSendDisabled: {
-    backgroundColor: COLORS.borderDark
+    backgroundColor: COLORS.borderDark || '#D1D5DB'
   },
   modalOverlay: {
     flex: 1,

@@ -148,6 +148,68 @@ const initSocketHandler = (io) => {
     });
 
     /**
+     * Workspace Group Chat Events
+     */
+    socket.on('join_workspace_room', (workspaceId) => {
+      if (!workspaceId) return;
+      const room = `workspace_${workspaceId}`;
+      socket.join(room);
+      console.log(`[Socket.io] User ${userId} joined workspace room: ${room}`);
+    });
+
+    socket.on('leave_workspace_room', (workspaceId) => {
+      if (!workspaceId) return;
+      const room = `workspace_${workspaceId}`;
+      socket.leave(room);
+      console.log(`[Socket.io] User ${userId} left workspace room: ${room}`);
+    });
+
+    socket.on('send_workspace_message', async (data) => {
+      try {
+        const { workspaceId, content } = data || {};
+        if (!workspaceId || !content || !content.trim()) return;
+
+        const Workspace = require('../models/Workspace');
+        const workspace = await Workspace.findById(workspaceId);
+        if (!workspace) {
+          socket.emit('workspace_error', { message: 'Workspace not found' });
+          return;
+        }
+
+        const uId = userId.toString();
+        const isOwner = workspace.owner && (workspace.owner.toString() === uId || workspace.owner._id?.toString() === uId);
+        const isMember = Array.isArray(workspace.members) && workspace.members.some(
+          m => m.user && (m.user.toString() === uId || m.user._id?.toString() === uId)
+        );
+
+        if (!isOwner && !isMember) {
+          socket.emit('workspace_error', { message: 'Access denied: You must be a workspace member to post.' });
+          return;
+        }
+
+        workspace.discussions.push({
+          sender: userId,
+          content: content.trim(),
+          createdAt: new Date()
+        });
+
+        await workspace.save();
+
+        const populated = await Workspace.findById(workspace._id)
+          .populate('discussions.sender', 'name role profileImage');
+
+        const createdMsg = populated.discussions[populated.discussions.length - 1];
+        const room = `workspace_${workspaceId}`;
+
+        // Broadcast to all sockets in the workspace room
+        io.to(room).emit('receive_workspace_message', createdMsg);
+      } catch (err) {
+        console.error('[Socket send_workspace_message error]:', err);
+        socket.emit('workspace_error', { message: err.message || 'Failed to send message' });
+      }
+    });
+
+    /**
      * Disconnect Event
      */
     socket.on('disconnect', () => {

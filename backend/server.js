@@ -51,6 +51,9 @@ const io = new Server(server, {
   }
 });
 
+// Attach Socket.io instance to Express app for controller access
+app.set('io', io);
+
 // Initialize Socket.io Event Handlers
 initSocketHandler(io);
 
