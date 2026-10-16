@@ -9,6 +9,15 @@ export const getWorkspacesApi = async () => {
   }
 };
 
+export const getDiscoverableWorkspacesApi = async () => {
+  try {
+    const res = await API.get('/workspaces/discover');
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
 export const getWorkspaceByIdApi = async (id) => {
   try {
     const res = await API.get(`/workspaces/${id}`);
@@ -27,6 +36,60 @@ export const createWorkspaceApi = async (data) => {
   }
 };
 
+export const requestWorkspaceAccessApi = async (id, data = {}) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/request-access`, data);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const cancelWorkspaceRequestApi = async (id) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/cancel-request`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const getWorkspaceRequestsApi = async (id) => {
+  try {
+    const res = await API.get(`/workspaces/${id}/requests`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const respondToWorkspaceRequestApi = async (id, requestId, action) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/requests/${requestId}/respond`, { action });
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const getMyWorkspaceRequestsApi = async () => {
+  try {
+    const res = await API.get('/workspaces/my-requests');
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const removeWorkspaceMemberApi = async (id, memberId) => {
+  try {
+    const res = await API.delete(`/workspaces/${id}/members/${memberId}`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
 export const inviteMemberApi = async (id, data) => {
   try {
     const res = await API.post(`/workspaces/${id}/members`, data);
@@ -36,6 +99,26 @@ export const inviteMemberApi = async (id, data) => {
   }
 };
 
+// Workspace Group Chat / Discussions
+export const getWorkspaceMessagesApi = async (id) => {
+  try {
+    const res = await API.get(`/workspaces/${id}/messages`);
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const postWorkspaceMessageApi = async (id, content) => {
+  try {
+    const res = await API.post(`/workspaces/${id}/messages`, { content });
+    return res.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// Tasks
 export const addTaskApi = async (id, taskData) => {
   try {
     const res = await API.post(`/workspaces/${id}/tasks`, taskData);
@@ -63,6 +146,7 @@ export const deleteTaskApi = async (id, taskId) => {
   }
 };
 
+// Milestones
 export const addMilestoneApi = async (id, milestoneData) => {
   try {
     const res = await API.post(`/workspaces/${id}/milestones`, milestoneData);
@@ -81,6 +165,7 @@ export const toggleMilestoneApi = async (id, milestoneId) => {
   }
 };
 
+// Notes
 export const addNoteApi = async (id, noteData) => {
   try {
     const res = await API.post(`/workspaces/${id}/notes`, noteData);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   Modal,
   ActivityIndicator,
   Linking,
-  Alert
+  Alert,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -22,18 +24,24 @@ import {
   toggleMilestoneApi,
   addNoteApi,
   deleteNoteApi,
-  inviteMemberApi
+  inviteMemberApi,
+  getWorkspaceMessagesApi,
+  postWorkspaceMessageApi,
+  removeWorkspaceMemberApi
 } from '../services/workspaceService';
 import { getAcceptedConnections } from '../services/connectionService';
+import { useAuth } from '../context/AuthContext';
 import LoadingView from '../components/LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
 import { COLORS, SHADOWS } from '../theme/theme';
 
 const WorkspaceDetailScreen = ({ route, navigation }) => {
   const { workspaceId } = route.params || {};
+  const { user: currentUser } = useAuth();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'milestones' | 'notes' | 'members'
+  // Active Tab: 'tasks' | 'milestones' | 'notes' | 'members' | 'discussion'
+  const [activeTab, setActiveTab] = useState('tasks');
 
   // Modals
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -54,7 +62,20 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
   const [connections, setConnections] = useState([]);
   const [loadingConnections, setLoadingConnections] = useState(false);
 
+  // Discussion / Group Chat State
+  const [messages, setMessages] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const chatScrollRef = useRef(null);
+
   const [submitting, setSubmitting] = useState(false);
+  const [actionNotice, setActionNotice] = useState(null);
+
+  const showNotice = (msg) => {
+    setActionNotice(msg);
+    setTimeout(() => setActionNotice(null), 3500);
+  };
 
   const fetchWorkspace = async () => {
     setLoading(true);
@@ -72,11 +93,31 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  const fetchMessages = async () => {
+    setLoadingMessages(true);
+    try {
+      const res = await getWorkspaceMessagesApi(workspaceId);
+      if (res.success) {
+        setMessages(res.messages || []);
+      }
+    } catch (err) {
+      console.error('Fetch messages error:', err);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
   useEffect(() => {
     if (workspaceId) {
       fetchWorkspace();
     }
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (workspaceId && activeTab === 'discussion') {
+      fetchMessages();
+    }
+  }, [workspaceId, activeTab]);
 
   // Load accepted connections when opening invite modal
   const handleOpenInviteModal = async () => {
@@ -113,6 +154,7 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
         setShowTaskModal(false);
         setTaskTitle('');
         setTaskDesc('');
+        showNotice('Task created successfully!');
       }
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not add task.');
@@ -149,22 +191,20 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
   // Add Milestone
   const handleAddMilestone = async () => {
     if (!milestoneTitle.trim()) {
-      Alert.alert('Required', 'Please enter a milestone title.');
+      Alert.alert('Required', 'Please enter milestone goal.');
       return;
     }
     setSubmitting(true);
     try {
-      const res = await addMilestoneApi(workspaceId, {
-        title: milestoneTitle.trim(),
-        targetDate: new Date(Date.now() + 14 * 86400000)
-      });
+      const res = await addMilestoneApi(workspaceId, { title: milestoneTitle.trim() });
       if (res.success) {
         setWorkspace((prev) => ({ ...prev, milestones: res.milestones }));
         setShowMilestoneModal(false);
         setMilestoneTitle('');
+        showNotice('Milestone defined!');
       }
     } catch (err) {
-      Alert.alert('Error', 'Could not add milestone.');
+      Alert.alert('Error', err.message || 'Could not add milestone.');
     } finally {
       setSubmitting(false);
     }
@@ -184,8 +224,8 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
 
   // Add Note
   const handleAddNote = async () => {
-    if (!noteTitle.trim() && !noteContent.trim()) {
-      Alert.alert('Required', 'Please enter a note title or content.');
+    if (!noteTitle.trim()) {
+      Alert.alert('Required', 'Please enter note title.');
       return;
     }
     setSubmitting(true);
@@ -201,6 +241,7 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
         setNoteTitle('');
         setNoteContent('');
         setNoteUrl('');
+        showNotice('Note shared with team!');
       }
     } catch (err) {
       Alert.alert('Error', 'Could not add note.');
@@ -235,6 +276,55 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  // Remove Member (Owner only)
+  const handleRemoveMember = async (memberUser) => {
+    const memberId = memberUser?._id || memberUser;
+    const memberName = memberUser?.name || 'this member';
+
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${memberName} from this workspace and linked team? Their access will be revoked immediately.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await removeWorkspaceMemberApi(workspaceId, memberId);
+              if (res.success) {
+                setWorkspace((prev) => ({ ...prev, members: res.members }));
+                showNotice(`${memberName} has been removed.`);
+              }
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Could not remove member.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Send Group Discussion Message
+  const handleSendMessage = async () => {
+    if (!messageText.trim()) return;
+    setSendingMessage(true);
+    try {
+      const res = await postWorkspaceMessageApi(workspaceId, messageText.trim());
+      if (res.success) {
+        setMessages((prev) => [...prev, res.message]);
+        setMessageText('');
+        setTimeout(() => {
+          chatScrollRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not send message.');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
   const handleOpenLink = (url) => {
     if (!url) return;
     const full = url.startsWith('http') ? url : `https://${url}`;
@@ -244,18 +334,30 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
   if (loading) return <LoadingView message="Loading research workspace..." />;
   if (!workspace) return <EmptyStateView title="Workspace Not Found" description="Could not load project workspace." />;
 
+  const isOwner =
+    Boolean(workspace.isOwner) ||
+    workspace.owner?._id?.toString() === currentUser?._id?.toString();
+
   return (
     <View style={styles.container}>
+      {/* Top Banner Notice */}
+      {actionNotice ? (
+        <View style={styles.actionNoticeBox}>
+          <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.actionNoticeText}>{actionNotice}</Text>
+        </View>
+      ) : null}
+
       {/* Workspace Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>{workspace.title}</Text>
+          <Text style={styles.title} numberOfLines={1}>{workspace.title}</Text>
           <View style={styles.statusPill}>
             <Text style={styles.statusPillText}>{workspace.status}</Text>
           </View>
         </View>
 
-        <Text style={styles.desc}>{workspace.description}</Text>
+        <Text style={styles.desc} numberOfLines={2}>{workspace.description}</Text>
 
         {/* Progress Tracker */}
         <View style={styles.progressRow}>
@@ -268,24 +370,22 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
         </View>
       </View>
 
-      {/* Tabs */}
+      {/* Tabs Bar */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'tasks' ? styles.tabBtnActive : null]}
           onPress={() => setActiveTab('tasks')}
           activeOpacity={0.8}
         >
-          <View style={styles.tabBtnContent}>
-            <Ionicons
-              name="checkbox-outline"
-              size={15}
-              color={activeTab === 'tasks' ? COLORS.primary : COLORS.textMuted}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={[styles.tabBtnText, activeTab === 'tasks' ? styles.tabBtnTextActive : null]}>
-              Tasks ({workspace.tasks?.length || 0})
-            </Text>
-          </View>
+          <Ionicons
+            name="checkbox-outline"
+            size={14}
+            color={activeTab === 'tasks' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 3 }}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'tasks' ? styles.tabBtnTextActive : null]}>
+            Tasks ({workspace.tasks?.length || 0})
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -293,17 +393,15 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
           onPress={() => setActiveTab('milestones')}
           activeOpacity={0.8}
         >
-          <View style={styles.tabBtnContent}>
-            <Ionicons
-              name="flag-outline"
-              size={15}
-              color={activeTab === 'milestones' ? COLORS.primary : COLORS.textMuted}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={[styles.tabBtnText, activeTab === 'milestones' ? styles.tabBtnTextActive : null]}>
-              Milestones ({workspace.milestones?.length || 0})
-            </Text>
-          </View>
+          <Ionicons
+            name="flag-outline"
+            size={14}
+            color={activeTab === 'milestones' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 3 }}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'milestones' ? styles.tabBtnTextActive : null]}>
+            Milestones ({workspace.milestones?.length || 0})
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -311,17 +409,15 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
           onPress={() => setActiveTab('notes')}
           activeOpacity={0.8}
         >
-          <View style={styles.tabBtnContent}>
-            <Ionicons
-              name="document-text-outline"
-              size={15}
-              color={activeTab === 'notes' ? COLORS.primary : COLORS.textMuted}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={[styles.tabBtnText, activeTab === 'notes' ? styles.tabBtnTextActive : null]}>
-              Notes ({workspace.notes?.length || 0})
-            </Text>
-          </View>
+          <Ionicons
+            name="document-text-outline"
+            size={14}
+            color={activeTab === 'notes' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 3 }}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'notes' ? styles.tabBtnTextActive : null]}>
+            Notes ({workspace.notes?.length || 0})
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -329,17 +425,31 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
           onPress={() => setActiveTab('members')}
           activeOpacity={0.8}
         >
-          <View style={styles.tabBtnContent}>
-            <Ionicons
-              name="people-outline"
-              size={15}
-              color={activeTab === 'members' ? COLORS.primary : COLORS.textMuted}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={[styles.tabBtnText, activeTab === 'members' ? styles.tabBtnTextActive : null]}>
-              Team ({workspace.members?.length || 0})
-            </Text>
-          </View>
+          <Ionicons
+            name="people-outline"
+            size={14}
+            color={activeTab === 'members' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 3 }}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'members' ? styles.tabBtnTextActive : null]}>
+            Team ({workspace.members?.length || 0})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === 'discussion' ? styles.tabBtnActive : null]}
+          onPress={() => setActiveTab('discussion')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="chatbubbles-outline"
+            size={14}
+            color={activeTab === 'discussion' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 3 }}
+          />
+          <Text style={[styles.tabBtnText, activeTab === 'discussion' ? styles.tabBtnTextActive : null]}>
+            Chat
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -508,7 +618,7 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
         </ScrollView>
       ) : null}
 
-      {/* 4. TEAM MEMBERS TAB */}
+      {/* 4. TEAM MEMBERS TAB (WITH MEMBER REMOVAL FOR OWNER) */}
       {activeTab === 'members' ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.sectionHeaderRow}>
@@ -516,30 +626,143 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
             <TouchableOpacity style={styles.btnAction} onPress={handleOpenInviteModal} activeOpacity={0.8}>
               <View style={styles.btnContentRow}>
                 <Ionicons name="person-add" size={14} color="#ffffff" style={{ marginRight: 4 }} />
-                <Text style={styles.btnActionText}>Invite Connection</Text>
+                <Text style={styles.btnActionText}>Invite</Text>
               </View>
             </TouchableOpacity>
           </View>
 
-          {Array.isArray(workspace.members) && workspace.members.map((m) => {
-            const u = m.user;
-            const imgUri =
-              u?.profileImage ||
-              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
-            return (
-              <View key={m._id || u?._id} style={styles.memberCard}>
-                <Image source={{ uri: imgUri }} style={styles.memberAvatarBig} />
-                <View style={styles.memberInfo}>
-                  <Text style={styles.memberName}>{u?.name || 'Teammate'}</Text>
-                  <Text style={styles.memberRole}>{u?.role ? `${u.role} • ${u.organization || ''}` : 'Researcher'}</Text>
+          {Array.isArray(workspace.members) &&
+            workspace.members.map((m) => {
+              const u = m.user;
+              const imgUri =
+                u?.profileImage ||
+                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
+              const isLead = u?._id?.toString() === workspace.owner?._id?.toString();
+              const isSelf = u?._id?.toString() === currentUser?._id?.toString();
+
+              return (
+                <View key={m._id || u?._id} style={styles.memberCard}>
+                  <Image source={{ uri: imgUri }} style={styles.memberAvatarBig} />
+                  <View style={styles.memberInfo}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.memberName}>{u?.name || 'Teammate'}</Text>
+                      {isLead ? (
+                        <View style={styles.leadBadgePill}>
+                          <Text style={styles.leadBadgeText}>Lead</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.memberRole}>{u?.role ? `${u.role} • ${u.organization || ''}` : 'Researcher'}</Text>
+                  </View>
+
+                  <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                    <View style={styles.memberRolePill}>
+                      <Text style={styles.memberRolePillText}>{m.role || 'Contributor'}</Text>
+                    </View>
+                    {/* Owner can remove non-lead, non-self members */}
+                    {isOwner && !isLead && !isSelf && (
+                      <TouchableOpacity
+                        style={styles.btnRemoveMember}
+                        onPress={() => handleRemoveMember(u)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="remove-circle-outline" size={12} color={COLORS.danger} style={{ marginRight: 3 }} />
+                        <Text style={styles.btnRemoveMemberText}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-                <View style={styles.memberRolePill}>
-                  <Text style={styles.memberRolePillText}>{m.role || 'Contributor'}</Text>
-                </View>
-              </View>
-            );
-          })}
+              );
+            })}
         </ScrollView>
+      ) : null}
+
+      {/* 5. DISCUSSION / GROUP CHAT TAB */}
+      {activeTab === 'discussion' ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={80}
+        >
+          <View style={styles.chatContainer}>
+            {loadingMessages ? (
+              <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 20 }} />
+            ) : messages.length === 0 ? (
+              <EmptyStateView
+                title="Workspace Group Chat"
+                description="Coordinate with team members, discuss findings, and share quick updates here."
+              />
+            ) : (
+              <ScrollView
+                ref={chatScrollRef}
+                style={styles.chatScroll}
+                contentContainerStyle={styles.chatScrollContent}
+                showsVerticalScrollIndicator={false}
+                onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
+              >
+                {messages.map((msg, idx) => {
+                  const isMine =
+                    msg.sender?._id?.toString() === currentUser?._id?.toString() ||
+                    msg.sender === currentUser?._id?.toString();
+                  const senderName = msg.sender?.name || 'Teammate';
+                  const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                  return (
+                    <View
+                      key={msg._id || idx}
+                      style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}
+                    >
+                      {!isMine && (
+                        <Image
+                          source={{
+                            uri:
+                              msg.sender?.profileImage ||
+                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
+                          }}
+                          style={styles.chatAvatar}
+                        />
+                      )}
+                      <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
+                        {!isMine && <Text style={styles.chatSenderName}>{senderName}</Text>}
+                        <Text style={[styles.chatContentText, isMine ? styles.chatContentMine : styles.chatContentOther]}>
+                          {msg.content}
+                        </Text>
+                        <Text style={[styles.chatTimeText, isMine ? styles.chatTimeMine : styles.chatTimeOther]}>
+                          {time}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {/* Chat Input Bar */}
+            <View style={styles.chatInputBar}>
+              <TextInput
+                style={styles.chatTextInput}
+                value={messageText}
+                onChangeText={setMessageText}
+                placeholder="Type a team message..."
+                placeholderTextColor={COLORS.textLight}
+                multiline
+                maxLength={500}
+              />
+              <TouchableOpacity
+                style={[styles.btnSend, !messageText.trim() && styles.btnSendDisabled]}
+                onPress={handleSendMessage}
+                disabled={!messageText.trim() || sendingMessage}
+                activeOpacity={0.8}
+              >
+                {sendingMessage ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="send" size={16} color="#ffffff" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       ) : null}
 
       {/* MODAL: ADD TASK */}
@@ -714,8 +937,6 @@ const WorkspaceDetailScreen = ({ route, navigation }) => {
                           style={styles.btnInviteAction}
                           onPress={() => handleInviteUser(u._id)}
                           activeOpacity={0.7}
-                          accessibilityRole="button"
-                          accessibilityLabel="Invite collaborator"
                         >
                           <Ionicons name="person-add" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
                           <Text style={styles.btnInviteActionText}>Invite</Text>
@@ -741,6 +962,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bgMain
+  },
+  actionNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C8E6C9'
+  },
+  actionNoticeText: {
+    fontSize: 13,
+    color: '#2E7D32',
+    fontWeight: '600',
+    flex: 1
   },
   header: {
     backgroundColor: COLORS.bgCard,
@@ -804,22 +1040,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgCard,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    paddingHorizontal: 8,
-    paddingVertical: 6
+    paddingHorizontal: 6
   },
   tabBtn: {
     flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 8
-  },
-  tabBtnContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    paddingVertical: 11,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent'
   },
   tabBtnActive: {
-    backgroundColor: COLORS.primaryLight
+    borderBottomColor: COLORS.primary
   },
   tabBtnText: {
     fontSize: 11,
@@ -854,20 +1087,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6
   },
-  btnContentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
   btnActionText: {
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '700'
   },
+  btnContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   itemCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: COLORS.bgCard,
     borderRadius: 10,
     padding: 12,
@@ -878,7 +1111,7 @@ const styles = StyleSheet.create({
   },
   checkRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flex: 1,
     marginRight: 8
   },
@@ -886,21 +1119,15 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 4,
-    borderWidth: 2,
-    borderColor: COLORS.textLight,
+    borderWidth: 1.5,
+    borderColor: COLORS.borderDark,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
-    marginTop: 2
+    marginRight: 10
   },
   checkboxChecked: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary
-  },
-  checkMark: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700'
   },
   taskTextCol: {
     flex: 1
@@ -908,7 +1135,8 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.textMain
+    color: COLORS.textMain,
+    marginBottom: 2
   },
   itemTitleDone: {
     textDecorationLine: 'line-through',
@@ -917,13 +1145,13 @@ const styles = StyleSheet.create({
   itemDesc: {
     fontSize: 12,
     color: COLORS.textMuted,
-    marginTop: 2
+    marginBottom: 4
   },
   taskMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 6
+    marginTop: 2
   },
   priorityPill: {
     backgroundColor: COLORS.bgInput,
@@ -953,9 +1181,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600'
   },
-  deleteIcon: {
-    fontSize: 14
-  },
   noteCard: {
     backgroundColor: COLORS.bgCard,
     borderRadius: 10,
@@ -975,10 +1200,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.textMain,
-    flex: 1
+    flex: 1,
+    marginRight: 8
   },
   noteContent: {
-    fontSize: 13,
+    fontSize: 12,
     color: COLORS.textMuted,
     lineHeight: 18,
     marginBottom: 8
@@ -986,16 +1212,13 @@ const styles = StyleSheet.create({
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F7F3',
+    backgroundColor: COLORS.bgInput,
     padding: 8,
     borderRadius: 6,
     marginBottom: 6
   },
-  linkIcon: {
-    marginRight: 6
-  },
   linkText: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.primary,
     fontWeight: '600',
     flex: 1
@@ -1031,6 +1254,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.textMain
   },
+  leadBadgePill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6
+  },
+  leadBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B45309'
+  },
   memberRole: {
     fontSize: 12,
     color: COLORS.textMuted,
@@ -1046,6 +1281,120 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.primary,
     fontWeight: '600'
+  },
+  btnRemoveMember: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2
+  },
+  btnRemoveMemberText: {
+    fontSize: 11,
+    color: COLORS.danger,
+    fontWeight: '600'
+  },
+  chatContainer: {
+    flex: 1,
+    backgroundColor: COLORS.bgMain
+  },
+  chatScroll: {
+    flex: 1
+  },
+  chatScrollContent: {
+    padding: 14,
+    paddingBottom: 20
+  },
+  messageRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    maxWidth: '85%'
+  },
+  messageRowMine: {
+    alignSelf: 'flex-end',
+    justifyContent: 'flex-end'
+  },
+  messageRowOther: {
+    alignSelf: 'flex-start'
+  },
+  chatAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+    alignSelf: 'flex-end'
+  },
+  bubble: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14
+  },
+  bubbleMine: {
+    backgroundColor: COLORS.primary,
+    borderBottomRightRadius: 2
+  },
+  bubbleOther: {
+    backgroundColor: COLORS.bgCard,
+    borderBottomLeftRadius: 2,
+    borderWidth: 1,
+    borderColor: COLORS.border
+  },
+  chatSenderName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: 2
+  },
+  chatContentText: {
+    fontSize: 13,
+    lineHeight: 18
+  },
+  chatContentMine: {
+    color: '#ffffff'
+  },
+  chatContentOther: {
+    color: COLORS.textMain
+  },
+  chatTimeText: {
+    fontSize: 9,
+    alignSelf: 'flex-end',
+    marginTop: 4
+  },
+  chatTimeMine: {
+    color: 'rgba(255,255,255,0.7)'
+  },
+  chatTimeOther: {
+    color: COLORS.textLight
+  },
+  chatInputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.bgCard,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border
+  },
+  chatTextInput: {
+    flex: 1,
+    backgroundColor: COLORS.bgInput,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    fontSize: 13,
+    maxHeight: 80,
+    color: COLORS.textMain
+  },
+  btnSend: {
+    backgroundColor: COLORS.primary,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8
+  },
+  btnSendDisabled: {
+    backgroundColor: COLORS.borderDark
   },
   modalOverlay: {
     flex: 1,

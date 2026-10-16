@@ -37,11 +37,56 @@ const projectRequirementSchema = new mongoose.Schema({
     enum: ['Research Paper', 'Hackathon Project', 'Open-Source Tool', 'Startup / Prototype', 'Academic Thesis', 'Other'],
     default: 'Research Paper'
   },
+  desiredTeamSize: {
+    type: Number,
+    default: 4,
+    min: 2,
+    max: 20
+  },
+  projectGoals: {
+    type: String,
+    trim: true
+  },
+  timeline: {
+    type: String,
+    trim: true
+  },
   status: {
     type: String,
     enum: ['Recruiting', 'TeamFormed', 'WorkspaceActive', 'Completed', 'Active', 'Filled', 'Archived'],
     default: 'Recruiting'
   },
+  // Inbound join requests sent by candidate users wishing to join this project team
+  joinRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    role: {
+      type: String,
+      default: 'Researcher',
+      trim: true
+    },
+    message: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'rejected', 'cancelled'],
+      default: 'pending'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    respondedAt: {
+      type: Date
+    }
+  }],
+  // Outbound invitations sent by project owner to candidate users
   invitations: [{
     user: {
       type: mongoose.Schema.Types.ObjectId,
@@ -97,6 +142,8 @@ const projectRequirementSchema = new mongoose.Schema({
 
 projectRequirementSchema.index({ owner: 1, status: 1 });
 projectRequirementSchema.index({ researchDomain: 1 });
+projectRequirementSchema.index({ 'joinRequests.user': 1, 'joinRequests.status': 1 });
+projectRequirementSchema.index({ 'finalTeam.user': 1 });
 
 const ProjectRequirement = mongoose.model('ProjectRequirement', projectRequirementSchema);
 module.exports = ProjectRequirement;

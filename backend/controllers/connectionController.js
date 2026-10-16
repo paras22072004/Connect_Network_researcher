@@ -164,16 +164,19 @@ const getAcceptedConnections = async (req, res) => {
     .populate('sender', 'name email role organization profileImage skills researchInterests bio')
     .populate('receiver', 'name email role organization profileImage skills researchInterests bio');
 
-    // Extract the other connected user profile for client convenience
-    const connectedUsers = connections.map(conn => {
-      const isSender = conn.sender._id.toString() === userId.toString();
-      const connectedUser = isSender ? conn.receiver : conn.sender;
-      return {
-        connectionId: conn._id,
-        user: connectedUser,
-        connectedSince: conn.updatedAt
-      };
-    });
+    // Extract the other connected user profile for client convenience, filtering out deleted accounts
+    const connectedUsers = connections
+      .filter(conn => conn && conn.sender && conn.receiver)
+      .map(conn => {
+        const isSender = conn.sender._id.toString() === userId.toString();
+        const connectedUser = isSender ? conn.receiver : conn.sender;
+        return {
+          connectionId: conn._id,
+          user: connectedUser,
+          connectedSince: conn.updatedAt
+        };
+      })
+      .filter(c => c.user && c.user._id);
 
     return res.json({
       success: true,
@@ -181,6 +184,7 @@ const getAcceptedConnections = async (req, res) => {
       connections: connectedUsers
     });
   } catch (error) {
+    console.error('[Get Accepted Connections Error]:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -204,10 +208,15 @@ const getConnectionRequests = async (req, res) => {
 
     return res.json({
       success: true,
-      incoming: incoming.map(r => ({ connectionId: r._id, user: r.sender, createdAt: r.createdAt })),
-      outgoing: outgoing.map(r => ({ connectionId: r._id, user: r.receiver, createdAt: r.createdAt }))
+      incoming: incoming
+        .filter(r => r && r.sender && r.sender._id)
+        .map(r => ({ connectionId: r._id, user: r.sender, createdAt: r.createdAt })),
+      outgoing: outgoing
+        .filter(r => r && r.receiver && r.receiver._id)
+        .map(r => ({ connectionId: r._id, user: r.receiver, createdAt: r.createdAt }))
     });
   } catch (error) {
+    console.error('[Get Connection Requests Error]:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

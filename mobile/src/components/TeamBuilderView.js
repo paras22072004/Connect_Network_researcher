@@ -25,12 +25,18 @@ import {
   respondToInvitationApi,
   finalizeTeamApi,
   completeProjectApi,
-  deleteProjectApi
+  deleteProjectApi,
+  requestToJoinProjectApi,
+  cancelJoinRequestApi,
+  getProjectRequestsApi,
+  respondToJoinRequestApi,
+  getMySentRequestsApi,
+  removeTeamMemberApi
 } from '../services/teamService';
 import { addTaskApi, updateTaskApi, getWorkspaceByIdApi } from '../services/workspaceService';
 import ProfileModalView from './ProfileModalView';
 import LoadingView from './LoadingView';
-import EmptyStateView from './EmptyStateView';
+import EmptyStateView from '../components/EmptyStateView';
 import { COLORS, SHADOWS } from '../theme/theme';
 
 // Quick Preset Project Ideas for fast demonstration
@@ -41,7 +47,10 @@ const PROJECT_PRESETS = [
     requiredSkills: 'PyTorch, Computer Vision, Medical Imaging, Python',
     researchDomain: 'Healthcare AI',
     desiredRoles: 'AI Researcher, ML Engineer',
-    collaborationType: 'Research Paper'
+    collaborationType: 'Research Paper',
+    desiredTeamSize: '4',
+    projectGoals: 'Develop and evaluate an attention-based multimodal model and submit to MICCAI.',
+    timeline: '3 months'
   },
   {
     title: 'Decentralized Edge Protocol',
@@ -49,7 +58,10 @@ const PROJECT_PRESETS = [
     requiredSkills: 'Rust, Distributed Systems, Go, Networking',
     researchDomain: 'Distributed Systems',
     desiredRoles: 'Systems Engineer, Protocol Architect',
-    collaborationType: 'Hackathon Project'
+    collaborationType: 'Hackathon Project',
+    desiredTeamSize: '3',
+    projectGoals: 'Build prototype mesh testnet with local BLE and Wi-Fi Direct sync.',
+    timeline: '1 month'
   },
   {
     title: 'Climate Risk Informatics Platform',
@@ -57,15 +69,20 @@ const PROJECT_PRESETS = [
     requiredSkills: 'GIS, Remote Sensing, Python, Geospatial ML',
     researchDomain: 'Climate Informatics',
     desiredRoles: 'Data Scientist, Geospatial Analyst',
-    collaborationType: 'Open-Source Tool'
+    collaborationType: 'Open-Source Tool',
+    desiredTeamSize: '5',
+    projectGoals: 'Assemble geospatial pipeline for real-time risk index generation across 50 regions.',
+    timeline: '6 months'
   }
 ];
 
 const TeamBuilderView = ({ navigation }) => {
   const { user: currentUser } = useAuth();
 
-  // Sub-tabs: 'projects' | 'create' | 'invitations'
+  // Sub-tabs: 'projects' | 'create' | 'requests' | 'invitations'
   const [subTab, setSubTab] = useState('projects');
+  // Requests toggle: 'incoming' | 'sent'
+  const [requestsSubTab, setRequestsSubTab] = useState('incoming');
 
   // Step 1: Project Definition Form
   const [title, setTitle] = useState('');
@@ -74,6 +91,9 @@ const TeamBuilderView = ({ navigation }) => {
   const [researchDomain, setResearchDomain] = useState('');
   const [desiredRoles, setDesiredRoles] = useState('');
   const [collaborationType, setCollaborationType] = useState('Research Paper');
+  const [desiredTeamSize, setDesiredTeamSize] = useState('4');
+  const [projectGoals, setProjectGoals] = useState('');
+  const [timeline, setTimeline] = useState('3 months');
   const [currentProjectId, setCurrentProjectId] = useState(null);
 
   // Step 2: AI Recommendations
@@ -86,6 +106,11 @@ const TeamBuilderView = ({ navigation }) => {
   const [myInvitations, setMyInvitations] = useState([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [respondingId, setRespondingId] = useState(null);
+
+  // Requests state
+  const [sentRequests, setSentRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [respondingRequestId, setRespondingRequestId] = useState(null);
 
   // Step 5-8: Projects & Workspaces
   const [myProjects, setMyProjects] = useState([]);
@@ -122,6 +147,24 @@ const TeamBuilderView = ({ navigation }) => {
     setTimeout(() => setActionNotice(null), 4000);
   };
 
+  // Compute incoming requests to projects owned by current user
+  const incomingRequests = useMemo(() => {
+    const list = [];
+    myProjects
+      .filter((p) => p.owner?._id?.toString() === currentUser?._id?.toString())
+      .forEach((p) => {
+        const pending = (p.joinRequests || []).filter((r) => r.status === 'pending');
+        pending.forEach((r) => {
+          list.push({
+            ...r,
+            projectId: p._id,
+            projectTitle: p.title
+          });
+        });
+      });
+    return list;
+  }, [myProjects, currentUser]);
+
   // Load initial data
   useEffect(() => {
     loadAllData();
@@ -129,7 +172,7 @@ const TeamBuilderView = ({ navigation }) => {
 
   const loadAllData = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    await Promise.all([loadProjects(), loadInvitations()]);
+    await Promise.all([loadProjects(), loadInvitations(), loadSentRequests()]);
     if (isRefresh) setRefreshing(false);
   };
 
@@ -161,6 +204,20 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
+  const loadSentRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const res = await getMySentRequestsApi();
+      if (res.success) {
+        setSentRequests(res.requests || []);
+      }
+    } catch (err) {
+      console.error('Error fetching sent requests:', err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
+
   const applyPreset = (preset) => {
     setTitle(preset.title);
     setDescription(preset.description);
@@ -168,6 +225,9 @@ const TeamBuilderView = ({ navigation }) => {
     setResearchDomain(preset.researchDomain);
     setDesiredRoles(preset.desiredRoles);
     setCollaborationType(preset.collaborationType);
+    setDesiredTeamSize(preset.desiredTeamSize || '4');
+    setProjectGoals(preset.projectGoals || '');
+    setTimeline(preset.timeline || '3 months');
     setCurrentProjectId(null);
     setRecommendations([]);
     setSearched(false);
@@ -186,6 +246,7 @@ const TeamBuilderView = ({ navigation }) => {
     try {
       const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
       const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
+      const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
 
       // Auto-save or create project requirement if not already created
       let pId = currentProjectId;
@@ -196,7 +257,10 @@ const TeamBuilderView = ({ navigation }) => {
           requiredSkills: parseSkills,
           researchDomain: researchDomain.trim(),
           desiredRoles: parseRoles,
-          collaborationType
+          collaborationType,
+          desiredTeamSize: teamSizeNum,
+          projectGoals: projectGoals.trim(),
+          timeline: timeline.trim()
         });
         if (saveRes.success && saveRes.project?._id) {
           pId = saveRes.project._id;
@@ -211,7 +275,10 @@ const TeamBuilderView = ({ navigation }) => {
         requiredSkills: parseSkills,
         researchDomain: researchDomain.trim(),
         desiredRoles: parseRoles,
-        collaborationType
+        collaborationType,
+        desiredTeamSize: teamSizeNum,
+        projectGoals: projectGoals.trim(),
+        timeline: timeline.trim()
       });
 
       if (recRes.success) {
@@ -229,17 +296,21 @@ const TeamBuilderView = ({ navigation }) => {
   // Step 3: Invite Candidate to Project
   const handleInviteCandidate = async (candidate) => {
     if (!currentProjectId) {
-      // Create project first if needed
       try {
         const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
         const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
+        const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
+
         const saveRes = await saveProjectApi({
           title: title.trim() || 'Research Project',
           description: description.trim() || 'Collaborative research exploration',
           requiredSkills: parseSkills,
           researchDomain: researchDomain.trim(),
           desiredRoles: parseRoles,
-          collaborationType
+          collaborationType,
+          desiredTeamSize: teamSizeNum,
+          projectGoals: projectGoals.trim(),
+          timeline: timeline.trim()
         });
         if (saveRes.success && saveRes.project?._id) {
           const newId = saveRes.project._id;
@@ -266,7 +337,6 @@ const TeamBuilderView = ({ navigation }) => {
 
       if (res.success) {
         showNotice(`Invitation sent to ${candidate.name}!`);
-        // Update local candidate card
         setRecommendations((prev) =>
           prev.map((c) => (c._id === candidate._id ? { ...c, isInvited: true } : c))
         );
@@ -279,7 +349,7 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
-  // Step 4: Respond to Invitation (Accept / Decline)
+  // Respond to Outbound Invitation (Accept / Decline)
   const handleRespondInvitation = async (projectId, action) => {
     setRespondingId(projectId);
     try {
@@ -296,12 +366,55 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
-  // Step 5 & 6: Finalize Team and Launch Workspace
+  // Respond to Inbound Join Request (Owner Accepts / Rejects)
+  const handleRespondJoinRequest = async (projectId, requestId, action) => {
+    setRespondingRequestId(requestId);
+    try {
+      const res = await respondToJoinRequestApi(projectId, requestId, action);
+      if (res.success) {
+        showNotice(
+          action === 'accept'
+            ? 'Applicant approved! Added to team and workspace.'
+            : 'Join request declined.'
+        );
+        await loadProjects();
+        await loadSentRequests();
+      }
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not process join request.');
+    } finally {
+      setRespondingRequestId(null);
+    }
+  };
+
+  // Cancel Outbound Sent Join Request
+  const handleCancelSentRequest = async (projectId) => {
+    Alert.alert('Cancel Request', 'Are you sure you want to cancel your team join request?', [
+      { text: 'No', style: 'cancel' },
+      {
+        text: 'Yes, Cancel',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const res = await cancelJoinRequestApi(projectId);
+            if (res.success) {
+              showNotice('Join request cancelled.');
+              loadSentRequests();
+            }
+          } catch (err) {
+            Alert.alert('Error', err.message || 'Could not cancel request.');
+          }
+        }
+      }
+    ]);
+  };
+
+  // Finalize Team and Launch Workspace
   const handleFinalizeTeam = async (projectId) => {
     try {
       const res = await finalizeTeamApi(projectId);
       if (res.success) {
-        showNotice('Team finalized! Research workspace created.');
+        showNotice('Team finalized! Research workspace ready.');
         await loadProjects();
         if (selectedProject?._id === projectId) {
           setSelectedProject(res.project);
@@ -312,7 +425,7 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
-  // Step 7: Update Task Status (Cycle: To Do -> In Progress -> Completed)
+  // Update Task Status
   const handleCycleTaskStatus = async (workspaceId, taskId, currentStatus) => {
     let nextStatus = 'In Progress';
     if (currentStatus === 'To Do') nextStatus = 'In Progress';
@@ -322,7 +435,6 @@ const TeamBuilderView = ({ navigation }) => {
     try {
       const res = await updateTaskApi(workspaceId, taskId, { status: nextStatus });
       if (res.success) {
-        // Refresh project detail
         if (selectedProject) {
           const detailRes = await getProjectByIdApi(selectedProject._id);
           if (detailRes.success) setSelectedProject(detailRes.project);
@@ -334,7 +446,7 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
-  // Step 7: Add New Task
+  // Add New Task
   const handleAddTask = async () => {
     if (!newTaskTitle.trim()) {
       Alert.alert('Missing Title', 'Please enter a task title.');
@@ -367,7 +479,7 @@ const TeamBuilderView = ({ navigation }) => {
     }
   };
 
-  // Step 8: Mark Project as Completed
+  // Mark Project as Completed
   const handleCompleteProject = async (projectId) => {
     Alert.alert(
       'Complete Project',
@@ -437,6 +549,7 @@ const TeamBuilderView = ({ navigation }) => {
   };
 
   const pendingInvitesCount = myInvitations.filter((i) => i.invitationStatus === 'invited').length;
+  const pendingRequestsCount = incomingRequests.length;
 
   return (
     <View style={styles.container}>
@@ -448,7 +561,7 @@ const TeamBuilderView = ({ navigation }) => {
         </View>
       ) : null}
 
-      {/* Sub-Tabs: My Projects | + Build Team | Invites */}
+      {/* Sub-Tabs: My Projects | + Build Team | Requests | Invites */}
       <View style={styles.subTabBar}>
         <TouchableOpacity
           style={[styles.subTabBtn, subTab === 'projects' && styles.subTabBtnActive]}
@@ -459,12 +572,12 @@ const TeamBuilderView = ({ navigation }) => {
         >
           <Ionicons
             name={subTab === 'projects' ? 'layers' : 'layers-outline'}
-            size={16}
+            size={15}
             color={subTab === 'projects' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 6 }}
+            style={{ marginRight: 4 }}
           />
           <Text style={[styles.subTabBtnText, subTab === 'projects' && styles.subTabBtnTextActive]}>
-            My Projects ({myProjects.length})
+            Projects ({myProjects.length})
           </Text>
         </TouchableOpacity>
 
@@ -477,13 +590,36 @@ const TeamBuilderView = ({ navigation }) => {
         >
           <Ionicons
             name={subTab === 'create' ? 'sparkles' : 'sparkles-outline'}
-            size={16}
+            size={15}
             color={subTab === 'create' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 6 }}
+            style={{ marginRight: 4 }}
           />
           <Text style={[styles.subTabBtnText, subTab === 'create' && styles.subTabBtnTextActive]}>
-            + Build Team
+            + Build
           </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.subTabBtn, subTab === 'requests' && styles.subTabBtnActive]}
+          onPress={() => setSubTab('requests')}
+          activeOpacity={0.7}
+          accessibilityRole="tab"
+          accessibilityLabel="Team Requests tab"
+        >
+          <Ionicons
+            name={subTab === 'requests' ? 'people' : 'people-outline'}
+            size={15}
+            color={subTab === 'requests' ? COLORS.primary : COLORS.textMuted}
+            style={{ marginRight: 4 }}
+          />
+          <Text style={[styles.subTabBtnText, subTab === 'requests' && styles.subTabBtnTextActive]}>
+            Requests
+          </Text>
+          {pendingRequestsCount > 0 && (
+            <View style={styles.tabBadge}>
+              <Text style={styles.tabBadgeText}>{pendingRequestsCount}</Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -495,9 +631,9 @@ const TeamBuilderView = ({ navigation }) => {
         >
           <Ionicons
             name={subTab === 'invitations' ? 'mail-unread' : 'mail-unread-outline'}
-            size={16}
+            size={15}
             color={subTab === 'invitations' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 6 }}
+            style={{ marginRight: 4 }}
           />
           <Text style={[styles.subTabBtnText, subTab === 'invitations' && styles.subTabBtnTextActive]}>
             Invites
@@ -522,23 +658,17 @@ const TeamBuilderView = ({ navigation }) => {
         >
           {/* Flow Stepper Info Header */}
           <View style={styles.flowBanner}>
-            <Text style={styles.flowBannerTitle}>Research Team Builder Lifecycle</Text>
+            <Text style={styles.flowBannerTitle}>Research Team Formation Flow</Text>
             <View style={styles.flowStepsRow}>
-              <Text style={styles.flowStepPill}>1. Project</Text>
+              <Text style={styles.flowStepPill}>1. Project Details</Text>
               <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
               <Text style={styles.flowStepPill}>2. AI Match</Text>
               <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>3. Invite</Text>
+              <Text style={styles.flowStepPill}>3. Request</Text>
               <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>4. Accept</Text>
+              <Text style={styles.flowStepPill}>4. Approve</Text>
               <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>5. Team</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>6. Workspace</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>7. Tasks</Text>
-              <Ionicons name="arrow-forward" size={11} color={COLORS.textLight} style={{ marginHorizontal: 3 }} />
-              <Text style={styles.flowStepPill}>8. Done</Text>
+              <Text style={styles.flowStepPill}>5. Team & Workspace</Text>
             </View>
           </View>
 
@@ -547,28 +677,26 @@ const TeamBuilderView = ({ navigation }) => {
           ) : myProjects.length === 0 ? (
             <EmptyStateView
               title="No Active Projects Yet"
-              description="Define a new project in the 'Create & Match' tab to get AI collaborator recommendations and build your team."
+              description="Define a new project in the '+ Build' tab to get AI collaborator recommendations and build your team."
             />
           ) : (
             myProjects.map((proj) => {
               const isOwner = proj.owner?._id?.toString() === currentUser?._id?.toString();
               const acceptedMembers = proj.finalTeam || [];
-              const pendingInvites = (proj.invitations || []).filter((i) => i.status === 'invited');
+              const pendingReqs = (proj.joinRequests || []).filter((r) => r.status === 'pending');
               const hasWorkspace = Boolean(proj.workspace);
               const isCompleted = proj.status === 'Completed';
+              const capacity = proj.desiredTeamSize || 4;
 
-              // Calculate workspace task counts if workspace is populated
               const ws = proj.workspace;
               const totalTasks = ws?.tasks?.length || 0;
               const completedTasks = ws?.tasks?.filter((t) => t.status === 'Completed').length || 0;
               const taskPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
               return (
-                <TouchableOpacity
+                <View
                   key={proj._id}
                   style={[styles.projectCard, isCompleted && styles.projectCardCompleted]}
-                  onPress={() => openProjectDetail(proj)}
-                  activeOpacity={0.8}
                 >
                   <View style={styles.cardHeaderRow}>
                     <View style={styles.cardTitleCol}>
@@ -593,12 +721,12 @@ const TeamBuilderView = ({ navigation }) => {
                     >
                       <Text
                         style={[
-                          styles.statusBadgeText,
+                          styles.statusBadgeTextGeneral,
                           isCompleted
                             ? styles.statusCompletedText
                             : hasWorkspace
                             ? styles.statusWorkspaceText
-                            : styles.statusBadgeTextGeneral
+                            : null
                         ]}
                       >
                         {isCompleted
@@ -621,8 +749,8 @@ const TeamBuilderView = ({ navigation }) => {
                     <View style={styles.teamRosterLeft}>
                       <Ionicons name="people" size={15} color={COLORS.primary} style={{ marginRight: 6 }} />
                       <Text style={styles.teamCountText}>
-                        Team: {acceptedMembers.length + (isOwner ? 0 : 1)} confirmed
-                        {pendingInvites.length > 0 ? ` • ${pendingInvites.length} pending` : ''}
+                        Team: {acceptedMembers.length + (isOwner ? 0 : 1)} / {capacity} confirmed
+                        {pendingReqs.length > 0 ? ` • ${pendingReqs.length} request(s)` : ''}
                       </Text>
                     </View>
                     {isOwner ? (
@@ -647,6 +775,22 @@ const TeamBuilderView = ({ navigation }) => {
                     </View>
                   )}
 
+                  {/* Direct Launch Workspace Button */}
+                  {hasWorkspace && (
+                    <TouchableOpacity
+                      style={styles.btnOpenWorkspaceDirect}
+                      onPress={() =>
+                        navigation.navigate('WorkspaceDetail', {
+                          workspaceId: proj.workspace?._id || proj.workspace
+                        })
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="folder-open-outline" size={15} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Text style={styles.btnOpenWorkspaceDirectText}>Open Research Workspace & Chat →</Text>
+                    </TouchableOpacity>
+                  )}
+
                   {/* Card Bottom Quick Actions */}
                   <View style={styles.cardActionsRow}>
                     <TouchableOpacity
@@ -655,7 +799,7 @@ const TeamBuilderView = ({ navigation }) => {
                       activeOpacity={0.7}
                     >
                       <Ionicons name="eye-outline" size={14} color={COLORS.primary} style={{ marginRight: 4 }} />
-                      <Text style={styles.btnCardActionText}>Manage Project & Tasks →</Text>
+                      <Text style={styles.btnCardActionText}>Manage Project & Tasks</Text>
                     </TouchableOpacity>
 
                     {isOwner && (
@@ -667,7 +811,7 @@ const TeamBuilderView = ({ navigation }) => {
                       </TouchableOpacity>
                     )}
                   </View>
-                </TouchableOpacity>
+                </View>
               );
             })
           )}
@@ -689,7 +833,7 @@ const TeamBuilderView = ({ navigation }) => {
                   style={{ marginRight: 5 }}
                 />
                 <Text style={[styles.topStepText, activeCreationStep >= 1 && styles.topStepTextActive]}>
-                  Step 1: Project Details
+                  Step 1: Details
                 </Text>
               </View>
 
@@ -704,7 +848,7 @@ const TeamBuilderView = ({ navigation }) => {
                   style={{ marginRight: 5 }}
                 />
                 <Text style={[styles.topStepText, activeCreationStep >= 2 && styles.topStepTextActive]}>
-                  Step 2: AI Recs
+                  Step 2: AI People
                 </Text>
               </View>
 
@@ -726,7 +870,7 @@ const TeamBuilderView = ({ navigation }) => {
           </View>
 
           {/* Quick Presets */}
-          <Text style={styles.presetLabel}>Quick Presets for Fast Testing:</Text>
+          <Text style={styles.presetLabel}>Quick Presets for Fast Demonstration:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsRow}>
             {PROJECT_PRESETS.map((preset, idx) => (
               <TouchableOpacity
@@ -747,12 +891,12 @@ const TeamBuilderView = ({ navigation }) => {
 
           {/* Form Card */}
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Define Project & Target Roles (Step 1)</Text>
+            <Text style={styles.formTitle}>Enter Project Details (Step 1)</Text>
             <Text style={styles.formSubtitle}>
-              Our AI analyzes semantic requirements and researcher embeddings to recommend complementary collaborators.
+              Specify your project goals and required skills. Our AI will suggest suitable teammates and automatically link a workspace.
             </Text>
 
-            <Text style={styles.inputLabel}>Project Title *</Text>
+            <Text style={styles.inputLabel}>Project Name *</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. AI-Based Healthcare Assistant"
@@ -772,6 +916,31 @@ const TeamBuilderView = ({ navigation }) => {
               numberOfLines={3}
             />
 
+            <View style={styles.twoCol}>
+              <View style={styles.col}>
+                <Text style={styles.inputLabel}>Research / Professional Domain</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Healthcare AI"
+                  placeholderTextColor={COLORS.textLight}
+                  value={researchDomain}
+                  onChangeText={setResearchDomain}
+                />
+              </View>
+
+              <View style={styles.col}>
+                <Text style={styles.inputLabel}>Desired Team Size</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 4"
+                  placeholderTextColor={COLORS.textLight}
+                  keyboardType="numeric"
+                  value={desiredTeamSize}
+                  onChangeText={setDesiredTeamSize}
+                />
+              </View>
+            </View>
+
             <Text style={styles.inputLabel}>Required Skills (comma-separated)</Text>
             <TextInput
               style={styles.input}
@@ -783,24 +952,24 @@ const TeamBuilderView = ({ navigation }) => {
 
             <View style={styles.twoCol}>
               <View style={styles.col}>
-                <Text style={styles.inputLabel}>Research Domain</Text>
+                <Text style={styles.inputLabel}>Project Goals</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. Healthcare AI"
+                  placeholder="e.g. Submit paper to MICCAI"
                   placeholderTextColor={COLORS.textLight}
-                  value={researchDomain}
-                  onChangeText={setResearchDomain}
+                  value={projectGoals}
+                  onChangeText={setProjectGoals}
                 />
               </View>
 
               <View style={styles.col}>
-                <Text style={styles.inputLabel}>Desired Roles</Text>
+                <Text style={styles.inputLabel}>Timeline / Duration</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. ML Engineer"
+                  placeholder="e.g. 3 months"
                   placeholderTextColor={COLORS.textLight}
-                  value={desiredRoles}
-                  onChangeText={setDesiredRoles}
+                  value={timeline}
+                  onChangeText={setTimeline}
                 />
               </View>
             </View>
@@ -820,23 +989,23 @@ const TeamBuilderView = ({ navigation }) => {
               ) : (
                 <View style={styles.btnInnerRow}>
                   <Ionicons name="sparkles" size={17} color="#ffffff" style={{ marginRight: 8 }} />
-                  <Text style={styles.btnSearchText}>Match Teammates with AI (Step 2)</Text>
+                  <Text style={styles.btnSearchText}>AI Suggested People (Step 2)</Text>
                 </View>
               )}
             </TouchableOpacity>
           </View>
 
-          {/* AI Recommendations List (Step 2 & 3) */}
+          {/* AI Recommendations List (Step 2) */}
           {searching ? (
             <LoadingView message="Matching candidate researcher embeddings & skill profiles..." />
           ) : searched ? (
             <View style={styles.resultsContainer}>
               <View style={styles.resultsHeader}>
                 <Text style={styles.resultsTitle}>
-                  AI Recommended Collaborators ({recommendations.length})
+                  AI Suggested People ({recommendations.length})
                 </Text>
                 <Text style={styles.resultsSubtitle}>
-                  Ranked by semantic vector similarity, complementary skills, and proximity.
+                  Ranked by semantic vector similarity, complementary skills, and proximity. Candidates are not auto-added to the team.
                 </Text>
               </View>
 
@@ -901,14 +1070,12 @@ const TeamBuilderView = ({ navigation }) => {
                         </View>
                       )}
 
-                      {/* Action: Step 3 Invite */}
+                      {/* Action Buttons */}
                       <View style={styles.candidateActions}>
                         <TouchableOpacity
                           style={styles.btnOutline}
                           onPress={() => setSelectedUser(candidate)}
                           activeOpacity={0.7}
-                          accessibilityRole="button"
-                          accessibilityLabel={`View ${candidate.name} profile`}
                         >
                           <Text style={styles.btnOutlineText}>View Profile</Text>
                         </TouchableOpacity>
@@ -916,7 +1083,7 @@ const TeamBuilderView = ({ navigation }) => {
                         {isInvited ? (
                           <View style={styles.btnInvited}>
                             <Ionicons name="time-outline" size={13} color={COLORS.primaryDark} style={{ marginRight: 4 }} />
-                            <Text style={styles.btnInvitedText}>Invited (Pending)</Text>
+                            <Text style={styles.btnInvitedText}>Invite Sent (Pending)</Text>
                           </View>
                         ) : (
                           <TouchableOpacity
@@ -924,15 +1091,13 @@ const TeamBuilderView = ({ navigation }) => {
                             onPress={() => handleInviteCandidate(candidate)}
                             disabled={isInviting}
                             activeOpacity={0.7}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Invite ${candidate.name} to project`}
                           >
                             {isInviting ? (
                               <ActivityIndicator size="small" color="#ffffff" />
                             ) : (
                               <View style={styles.btnInnerRow}>
                                 <Ionicons name="person-add" size={13} color="#ffffff" style={{ marginRight: 5 }} />
-                                <Text style={styles.btnInviteText}>Invite to Project</Text>
+                                <Text style={styles.btnInviteText}>Invite to Team</Text>
                               </View>
                             )}
                           </TouchableOpacity>
@@ -947,7 +1112,185 @@ const TeamBuilderView = ({ navigation }) => {
         </ScrollView>
       )}
 
-      {/* SUB-TAB 3: RECEIVED INVITATIONS (Step 4) */}
+      {/* SUB-TAB 3: TEAM REQUESTS & MY SENT REQUESTS */}
+      {subTab === 'requests' && (
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.scrollBody}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => loadAllData(true)} colors={[COLORS.primary]} />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Sub Pills: Inbound vs Sent */}
+          <View style={styles.subPillsRow}>
+            <TouchableOpacity
+              style={[styles.subPill, requestsSubTab === 'incoming' && styles.subPillActive]}
+              onPress={() => setRequestsSubTab('incoming')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.subPillText, requestsSubTab === 'incoming' && styles.subPillTextActive]}>
+                Team Requests ({incomingRequests.length})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.subPill, requestsSubTab === 'sent' && styles.subPillActive]}
+              onPress={() => setRequestsSubTab('sent')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.subPillText, requestsSubTab === 'sent' && styles.subPillTextActive]}>
+                My Sent ({sentRequests.length})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Incoming Team Requests (Owner reviews requests) */}
+          {requestsSubTab === 'incoming' ? (
+            incomingRequests.length === 0 ? (
+              <EmptyStateView
+                title="No Pending Team Requests"
+                description="When researchers request to join your projects, their applications will appear here for your review."
+              />
+            ) : (
+              incomingRequests.map((req) => {
+                const u = req.user;
+                const isResponding = respondingRequestId === req._id;
+
+                return (
+                  <View key={req._id} style={styles.requestCard}>
+                    <View style={styles.requestHeader}>
+                      <Text style={styles.requestProjectTitle} numberOfLines={1}>
+                        {req.projectTitle}
+                      </Text>
+                      <View style={styles.pendingPill}>
+                        <Text style={styles.pendingPillText}>Pending</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.requesterProfileRow}>
+                      <Image
+                        source={{
+                          uri:
+                            u?.profileImage ||
+                            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
+                        }}
+                        style={styles.requesterAvatar}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.requesterName}>{u?.name || 'Researcher'}</Text>
+                        <Text style={styles.requesterRole}>
+                          {u?.role || 'Engineer'} {u?.organization ? `• ${u.organization}` : ''}
+                        </Text>
+                        <Text style={styles.reqRoleBadge}>Desired Role: {req.role || 'Contributor'}</Text>
+                      </View>
+                    </View>
+
+                    {req.message ? (
+                      <View style={styles.reqMessageBox}>
+                        <Text style={styles.reqMessageText}>"{req.message}"</Text>
+                      </View>
+                    ) : null}
+
+                    {/* Accept / Reject Buttons */}
+                    <View style={styles.reqButtonsRow}>
+                      <TouchableOpacity
+                        style={styles.btnReject}
+                        onPress={() => handleRespondJoinRequest(req.projectId, req._id, 'reject')}
+                        disabled={isResponding}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="close" size={15} color={COLORS.danger} style={{ marginRight: 4 }} />
+                        <Text style={styles.btnRejectText}>Reject</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.btnAccept}
+                        onPress={() => handleRespondJoinRequest(req.projectId, req._id, 'accept')}
+                        disabled={isResponding}
+                        activeOpacity={0.8}
+                      >
+                        {isResponding ? (
+                          <ActivityIndicator size="small" color="#ffffff" />
+                        ) : (
+                          <View style={styles.btnInnerRow}>
+                            <Ionicons name="checkmark" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+                            <Text style={styles.btnAcceptText}>Accept & Grant Access</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )
+          ) : (
+            /* Sent Requests */
+            sentRequests.length === 0 ? (
+              <EmptyStateView
+                title="No Sent Requests"
+                description="You have not requested to join any teams yet."
+              />
+            ) : (
+              sentRequests.map((req) => {
+                const isPending = req.status === 'pending';
+                const isAccepted = req.status === 'accepted';
+                const isRejected = req.status === 'rejected';
+
+                return (
+                  <View key={req._id} style={styles.requestCard}>
+                    <View style={styles.requestHeader}>
+                      <Text style={styles.requestProjectTitle} numberOfLines={1}>
+                        {req.project?.title || 'Research Project'}
+                      </Text>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          isAccepted
+                            ? styles.statusCompleted
+                            : isRejected
+                            ? styles.statusDeclined
+                            : styles.statusRecruiting
+                        ]}
+                      >
+                        <Text style={styles.statusBadgeTextGeneral}>{req.status.toUpperCase()}</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.sentProjectDesc} numberOfLines={2}>
+                      {req.project?.description}
+                    </Text>
+
+                    <View style={styles.sentMetaRow}>
+                      <Text style={styles.sentMetaText}>
+                        Owner: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{req.project?.owner?.name || 'Project Lead'}</Text>
+                      </Text>
+                      <Text style={styles.sentMetaText}>
+                        Role: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{req.role}</Text>
+                      </Text>
+                    </View>
+
+                    {isPending && (
+                      <View style={styles.sentActionRow}>
+                        <TouchableOpacity
+                          style={styles.btnCancelOutline}
+                          onPress={() => handleCancelSentRequest(req.project?._id || req.project)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="trash-outline" size={13} color={COLORS.danger} style={{ marginRight: 4 }} />
+                          <Text style={styles.btnCancelOutlineText}>Cancel Request</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )
+          )}
+        </ScrollView>
+      )}
+
+      {/* SUB-TAB 4: RECEIVED INVITATIONS */}
       {subTab === 'invitations' && (
         <ScrollView
           style={styles.contentScroll}
@@ -1004,7 +1347,6 @@ const TeamBuilderView = ({ navigation }) => {
                     <Text style={styles.roleOfferValue}>{inv.myRole}</Text>
                   </View>
 
-                  {/* Accept / Decline Action Buttons (Step 4) */}
                   {!isAccepted && !isDeclined ? (
                     <View style={styles.inviteActionRow}>
                       <TouchableOpacity
@@ -1012,8 +1354,6 @@ const TeamBuilderView = ({ navigation }) => {
                         onPress={() => handleRespondInvitation(inv.projectId, 'accept')}
                         disabled={isResponding}
                         activeOpacity={0.7}
-                        accessibilityRole="button"
-                        accessibilityLabel="Accept project invitation"
                       >
                         {isResponding ? (
                           <ActivityIndicator size="small" color="#ffffff" />
@@ -1030,8 +1370,6 @@ const TeamBuilderView = ({ navigation }) => {
                         onPress={() => handleRespondInvitation(inv.projectId, 'decline')}
                         disabled={isResponding}
                         activeOpacity={0.7}
-                        accessibilityRole="button"
-                        accessibilityLabel="Decline project invitation"
                       >
                         <View style={styles.btnInnerRow}>
                           <Ionicons name="close-circle-outline" size={15} color={COLORS.danger} style={{ marginRight: 5 }} />
@@ -1061,7 +1399,7 @@ const TeamBuilderView = ({ navigation }) => {
         </ScrollView>
       )}
 
-      {/* FULL PROJECT DETAIL & WORKSPACE MODAL (Step 5 - 8) */}
+      {/* FULL PROJECT DETAIL & WORKSPACE MODAL */}
       <Modal
         visible={Boolean(selectedProject)}
         animationType="slide"
@@ -1183,7 +1521,25 @@ const TeamBuilderView = ({ navigation }) => {
                 </View>
               </View>
 
-              {/* Celebration Banner if Completed (Step 8) */}
+              {/* Direct Link to Workspace */}
+              {selectedProject.workspace && (
+                <TouchableOpacity
+                  style={styles.btnLaunchWorkspace}
+                  onPress={() => {
+                    const wsId = selectedProject.workspace?._id || selectedProject.workspace;
+                    setSelectedProject(null);
+                    navigation.navigate('WorkspaceDetail', { workspaceId: wsId });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="folder-open" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                  <Text style={styles.btnLaunchWorkspaceText}>
+                    Open Dedicated Workspace & Group Chat →
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Celebration Banner if Completed */}
               {selectedProject.status === 'Completed' && (
                 <View style={styles.celebrationBanner}>
                   <Ionicons name="trophy" size={28} color="#D97706" style={{ marginRight: 10 }} />
@@ -1201,6 +1557,13 @@ const TeamBuilderView = ({ navigation }) => {
                 <Text style={styles.sectionHeader}>Overview & Objectives</Text>
                 <Text style={styles.sectionBodyText}>{selectedProject.description}</Text>
 
+                {Boolean(selectedProject.projectGoals) && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={styles.inputLabel}>Goals:</Text>
+                    <Text style={styles.sectionBodyText}>{selectedProject.projectGoals}</Text>
+                  </View>
+                )}
+
                 {Array.isArray(selectedProject.requiredSkills) && selectedProject.requiredSkills.length > 0 && (
                   <View style={styles.skillsRowModal}>
                     {selectedProject.requiredSkills.map((s, idx) => (
@@ -1212,14 +1575,12 @@ const TeamBuilderView = ({ navigation }) => {
                 )}
               </View>
 
-              {/* Step 5: Final Confirmed Team */}
+              {/* Confirmed Team */}
               <View style={styles.modalSectionCard}>
                 <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionHeader}>
-                    Final Confirmed Team (Step 5)
-                  </Text>
+                  <Text style={styles.sectionHeader}>Confirmed Team</Text>
                   <Text style={styles.teamBadgeCount}>
-                    {(selectedProject.finalTeam?.length || 0) + 1} Members
+                    {(selectedProject.finalTeam?.length || 0) + 1} / {selectedProject.desiredTeamSize || 4} Members
                   </Text>
                 </View>
 
@@ -1268,7 +1629,6 @@ const TeamBuilderView = ({ navigation }) => {
                   </View>
                 ))}
 
-                {/* Finalize Team & Launch Workspace Button (if not already launched) */}
                 {!selectedProject.workspace && (
                   <TouchableOpacity
                     style={styles.btnLaunchWorkspace}
@@ -1277,23 +1637,21 @@ const TeamBuilderView = ({ navigation }) => {
                   >
                     <Ionicons name="rocket-outline" size={17} color="#ffffff" style={{ marginRight: 8 }} />
                     <Text style={styles.btnLaunchWorkspaceText}>
-                      Confirm Final Team & Launch Workspace (Step 6)
+                      Confirm Final Team & Launch Workspace
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
 
-              {/* Step 6 & 7: Workspace & Task Board */}
+              {/* Workspace Tasks */}
               {selectedProject.workspace && (
                 <View style={styles.modalSectionCard}>
                   <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionHeader}>Workspace Tasks (Step 7)</Text>
+                    <Text style={styles.sectionHeader}>Workspace Tasks</Text>
                     <TouchableOpacity
                       style={styles.btnAddTaskSmall}
                       onPress={() => setIsTaskModalVisible(true)}
                       activeOpacity={0.7}
-                      accessibilityRole="button"
-                      accessibilityLabel="Add workspace task"
                     >
                       <Ionicons name="add" size={14} color="#ffffff" style={{ marginRight: 2 }} />
                       <Text style={styles.btnAddTaskSmallText}>Add Task</Text>
@@ -1349,8 +1707,6 @@ const TeamBuilderView = ({ navigation }) => {
                               )
                             }
                             activeOpacity={0.7}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Change status from ${task.status}`}
                           >
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                               <Text
@@ -1378,7 +1734,7 @@ const TeamBuilderView = ({ navigation }) => {
                     })
                   )}
 
-                  {/* Step 8: Mark Project as Completed */}
+                  {/* Complete Project */}
                   {selectedProject.status !== 'Completed' && (
                     <TouchableOpacity
                       style={styles.btnCompleteProject}
@@ -1387,7 +1743,7 @@ const TeamBuilderView = ({ navigation }) => {
                     >
                       <Ionicons name="checkmark-done" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                       <Text style={styles.btnCompleteProjectText}>
-                        Complete Project & Archive Deliverables (Step 8)
+                        Complete Project & Deliver
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1521,7 +1877,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderColor: COLORS.border,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8
   },
   subTabBtn: {
@@ -1531,13 +1887,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     borderRadius: 8,
-    marginHorizontal: 3
+    marginHorizontal: 2
   },
   subTabBtnActive: {
     backgroundColor: COLORS.primaryLight
   },
   subTabBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     color: COLORS.textMuted,
     fontWeight: '600'
   },
@@ -1548,13 +1904,42 @@ const styles = StyleSheet.create({
   tabBadge: {
     backgroundColor: COLORS.warning,
     borderRadius: 10,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 1,
-    marginLeft: 6
+    marginLeft: 4
   },
   tabBadgeText: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '700'
+  },
+  subPillsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+    backgroundColor: COLORS.bgMain,
+    marginBottom: 6
+  },
+  subPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: 8
+  },
+  subPillActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary
+  },
+  subPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textMuted
+  },
+  subPillTextActive: {
+    color: '#ffffff',
     fontWeight: '700'
   },
   contentScroll: {
@@ -1629,11 +2014,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6
-  },
-  flowArrow: {
-    fontSize: 11,
-    color: COLORS.textLight,
-    marginHorizontal: 4
   },
   presetLabel: {
     fontSize: 12,
@@ -1874,15 +2254,15 @@ const styles = StyleSheet.create({
     borderColor: '#B8CEBE',
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 9
+    borderRadius: 9,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   btnInvitedText: {
     fontSize: 13,
     color: COLORS.primary,
     fontWeight: '600'
   },
-
-  // Project List Styles
   projectCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
@@ -2017,11 +2397,26 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 3
   },
+  btnOpenWorkspaceDirect: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 9,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12
+  },
+  btnOpenWorkspaceDirectText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700'
+  },
   cardActionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 12,
     paddingTop: 8,
     borderTopWidth: 1,
     borderColor: COLORS.borderLight
@@ -2035,8 +2430,145 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.primary
   },
-
-  // Invitations Sub-tab
+  requestCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOWS.card
+  },
+  requestHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  requestProjectTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.primary,
+    flex: 1,
+    marginRight: 8
+  },
+  pendingPill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6
+  },
+  pendingPillText: {
+    color: '#92400E',
+    fontSize: 11,
+    fontWeight: '700'
+  },
+  requesterProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  requesterAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10
+  },
+  requesterName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textMain
+  },
+  requesterRole: {
+    fontSize: 12,
+    color: COLORS.textMuted
+  },
+  reqRoleBadge: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '600',
+    marginTop: 2
+  },
+  reqMessageBox: {
+    backgroundColor: COLORS.bgInput,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12
+  },
+  reqMessageText: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    fontStyle: 'italic'
+  },
+  reqButtonsRow: {
+    flexDirection: 'row',
+    gap: 8
+  },
+  btnReject: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 9,
+    borderRadius: 8
+  },
+  btnRejectText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  btnAccept: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 9,
+    borderRadius: 8
+  },
+  btnAcceptText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  sentProjectDesc: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+    marginBottom: 8
+  },
+  sentMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    marginBottom: 8
+  },
+  sentMetaText: {
+    fontSize: 12,
+    color: COLORS.textMuted
+  },
+  sentActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4
+  },
+  btnCancelOutline: {
+    borderWidth: 1,
+    borderColor: '#DC2626',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  btnCancelOutlineText: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '600'
+  },
   inviteCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
@@ -2094,18 +2626,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 14
   },
-  btnAccept: {
-    flex: 1,
-    backgroundColor: COLORS.primary,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  btnAcceptText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13
-  },
   btnDecline: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -2123,15 +2643,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 8,
     backgroundColor: COLORS.bgInput,
-    borderRadius: 8
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   resolvedInviteText: {
     fontSize: 12,
     color: COLORS.textMuted,
     fontWeight: '500'
   },
-
-  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: COLORS.bgMain
@@ -2325,7 +2845,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   collaboratorPillText: {
     fontSize: 11,
@@ -2456,8 +2978,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700'
   },
-
-  // Task Modal Styles
   taskModalOverlay: {
     flex: 1,
     backgroundColor: COLORS.bgOverlay,

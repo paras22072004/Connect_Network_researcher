@@ -17,6 +17,7 @@ const messageRoutes = require('./routes/messageRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const eventRoutes = require('./routes/eventRoutes');
 const workspaceRoutes = require('./routes/workspaceRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const initSocketHandler = require('./socket/socketHandler');
 
@@ -73,6 +74,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/team', teamRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/workspaces', workspaceRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

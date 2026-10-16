@@ -2,6 +2,7 @@ const ProjectRequirement = require('../models/ProjectRequirement');
 const User = require('../models/User');
 const Connection = require('../models/Connection');
 const Workspace = require('../models/Workspace');
+const { createNotification } = require('../services/notificationService');
 const { generateEmbedding, cosineSimilarity, normalizeSemanticScore, ensureUserEmbedding } = require('../services/aiEmbeddingService');
 const { calculateHaversineDistanceMeters, formatApproximateDistance } = require('../utils/distanceCalculator');
 
@@ -27,7 +28,8 @@ const recommendTeammates = async (req, res) => {
       requiredSkills = [],
       researchDomain = '',
       desiredRoles = [],
-      collaborationType = 'Research Paper'
+      collaborationType = 'Research Paper',
+      projectId = null
     } = req.body;
 
     if (!title && !description && (!requiredSkills || requiredSkills.length === 0)) {
@@ -86,6 +88,12 @@ const recommendTeammates = async (req, res) => {
         isSender: conn.sender.toString() === req.user._id.toString()
       };
     });
+
+    // 4b. If projectId provided, check current membership / invitation / join request status
+    let activeProject = null;
+    if (projectId) {
+      activeProject = await ProjectRequirement.findById(projectId);
+    }
 
     // 5. Evaluate and score each candidate
     const recommendations = await Promise.all(candidates.map(async (candidate) => {
@@ -151,52 +159,52 @@ const recommendTeammates = async (req, res) => {
         }
       }
 
-      // Synthesize Final Teammate Compatibility Score
-      const compatibilityScore = Math.min(
-        Math.max(
-          Math.round(
-            semanticScore * 0.45 +
-            skillScore * 0.25 +
-            roleScore * 0.20 +
-            domainScore * 0.10
-          ),
-          15
-        ),
-        99
+      // Composite Compatibility Formula
+      const compatibilityScore = Math.round(
+        (semanticScore * 0.45) +
+        (skillScore * 0.25) +
+        (roleScore * 0.20) +
+        (domainScore * 0.10)
       );
 
-      // Build structured reasons based on actual candidate data
-      const reasonParts = [];
-      if (matchedSkills.length > 0) {
-        reasonParts.push(`Matches skills: ${matchedSkills.slice(0, 3).join(', ')}`);
-      }
-      if (roleMatched) {
-        reasonParts.push(`Fulfills role: ${candObj.role}`);
-      }
-      if (domainMatched) {
-        reasonParts.push(`Active in ${researchDomain}`);
-      }
-      if (semanticScore >= 70) {
-        reasonParts.push(`Strong semantic alignment (${semanticScore}%) with project goals`);
+      // Distance estimation
+      let approximateDistance = 'Nearby';
+      const [candLng, candLat] = candObj.location?.coordinates || [0, 0];
+      if (hasUserLocation && (candLng !== 0 || candLat !== 0)) {
+        const meters = calculateHaversineDistanceMeters(userLat, userLng, candLat, candLng);
+        approximateDistance = formatApproximateDistance(meters);
       }
 
-      const recommendationReason = reasonParts.length > 0
-        ? reasonParts.join(' • ')
-        : 'Complementary background suitable for multi-disciplinary collaboration.';
+      // Recommendation reasoning summary
+      const reasons = [];
+      if (semanticScore >= 80) reasons.push('Strong conceptual alignment');
+      if (matchedSkills.length > 0) reasons.push(`Matches ${matchedSkills.slice(0, 2).join(', ')}`);
+      if (roleMatched) reasons.push(`Fits role: ${candObj.role}`);
+      if (domainMatched) reasons.push(`Active in ${researchDomain}`);
+      const recommendationReason = reasons.length > 0 ? reasons.join(' • ') : 'Compatible multidisciplinary background';
 
-      // Location proximity (privacy-safe approximate distance)
-      let approximateDistance = 'Location undisclosed';
-      if (hasUserLocation && candObj.location?.coordinates && candObj.location.coordinates.length >= 2) {
-        const [candLng, candLat] = candObj.location.coordinates;
-        if (candLng !== 0 || candLat !== 0) {
-          const exactDistance = calculateHaversineDistanceMeters(userLat, userLng, candLat, candLng);
-          approximateDistance = formatApproximateDistance(exactDistance);
+      const connectionInfo = connectionMap[candidate._id.toString()] || { status: 'none' };
+
+      // Status in current active project if provided
+      let projectMemberStatus = 'none'; // 'none' | 'invited' | 'accepted' | 'requested'
+      if (activeProject) {
+        const isFinal = activeProject.finalTeam?.some(m => m.user?.toString() === candidate._id.toString());
+        if (isFinal) {
+          projectMemberStatus = 'accepted';
+        } else {
+          const inv = activeProject.invitations?.find(i => i.user?.toString() === candidate._id.toString());
+          if (inv && inv.status === 'invited') {
+            projectMemberStatus = 'invited';
+          } else {
+            const reqItem = activeProject.joinRequests?.find(r => r.user?.toString() === candidate._id.toString() && r.status === 'pending');
+            if (reqItem) {
+              projectMemberStatus = 'requested';
+            }
+          }
         }
       }
 
-      const connectionInfo = connectionMap[candObj._id.toString()] || { status: 'none' };
-
-      // Strip sensitive internal fields
+      // Sanitize private coordinates
       delete candObj.location;
       delete candObj.aiProfileEmbedding;
       delete candObj.aiProfileText;
@@ -212,7 +220,8 @@ const recommendTeammates = async (req, res) => {
         approximateDistance,
         connectionStatus: connectionInfo.status,
         connectionId: connectionInfo.connectionId || null,
-        isSender: connectionInfo.isSender || false
+        isSender: connectionInfo.isSender || false,
+        projectMemberStatus
       };
     }));
 
@@ -231,7 +240,7 @@ const recommendTeammates = async (req, res) => {
 };
 
 /**
- * @desc    Save a project requirement to user's profile
+ * @desc    Save a project requirement to user's profile and automatically create/link a Workspace
  * @route   POST /api/team/projects
  * @access  Private
  */
@@ -243,7 +252,11 @@ const saveProjectRequirement = async (req, res) => {
       requiredSkills = [],
       researchDomain = '',
       desiredRoles = [],
-      collaborationType = 'Research Paper'
+      collaborationType = 'Research Paper',
+      desiredTeamSize = 4,
+      projectGoals = '',
+      timeline = '',
+      workspaceId = null
     } = req.body;
 
     if (!title || !description) {
@@ -253,7 +266,8 @@ const saveProjectRequirement = async (req, res) => {
       });
     }
 
-    const project = await ProjectRequirement.create({
+    // 1. Create project requirement
+    const project = new ProjectRequirement({
       owner: req.user._id,
       title,
       description,
@@ -261,13 +275,82 @@ const saveProjectRequirement = async (req, res) => {
       researchDomain,
       desiredRoles,
       collaborationType,
-      status: 'Recruiting'
+      desiredTeamSize: Number(desiredTeamSize) || 4,
+      projectGoals,
+      timeline,
+      status: 'Recruiting',
+      finalTeam: [{ user: req.user._id, role: 'Lead', joinedAt: new Date() }]
     });
+
+    // 2. Automatically create or link exactly one associated Workspace
+    let workspace = null;
+    if (workspaceId) {
+      workspace = await Workspace.findById(workspaceId);
+    }
+
+    if (!workspace) {
+      workspace = await Workspace.create({
+        title: `${title} Workspace`,
+        description,
+        owner: req.user._id,
+        project: project._id,
+        status: 'In Progress',
+        isPublic: true,
+        tags: [researchDomain, collaborationType].filter(Boolean),
+        members: [
+          { user: req.user._id, role: 'Lead', joinedAt: new Date() }
+        ],
+        tasks: [
+          {
+            title: 'Project Kickoff & Objective Alignment',
+            description: projectGoals || 'Review research requirements, assign roles, and align on timeline.',
+            assignee: req.user._id,
+            status: 'To Do',
+            priority: 'High'
+          },
+          {
+            title: 'Literature Review & Architecture Design',
+            description: 'Synthesize related work and prepare foundational architecture.',
+            assignee: req.user._id,
+            status: 'To Do',
+            priority: 'Medium'
+          }
+        ],
+        milestones: [
+          {
+            title: 'Team Formation Completed',
+            completed: false
+          },
+          {
+            title: 'Initial Deliverable / Prototype Review',
+            completed: false
+          }
+        ],
+        discussions: [
+          {
+            sender: req.user._id,
+            content: `Welcome to the ${title} workspace collaboration group! Use this space for team chat, milestones, and shared files.`
+          }
+        ]
+      });
+    } else {
+      workspace.project = project._id;
+      await workspace.save();
+    }
+
+    project.workspace = workspace._id;
+    await project.save();
+
+    const populatedProject = await ProjectRequirement.findById(project._id)
+      .populate('owner', 'name role organization profileImage email')
+      .populate('finalTeam.user', 'name role organization profileImage skills')
+      .populate('workspace');
 
     return res.status(201).json({
       success: true,
-      message: 'Project requirements saved successfully.',
-      project
+      message: 'Project created and workspace linked successfully.',
+      project: populatedProject,
+      workspace
     });
   } catch (error) {
     console.error('[Save Project Error]:', error);
@@ -290,6 +373,7 @@ const getMyProjectRequirements = async (req, res) => {
     })
       .populate('owner', 'name role organization profileImage email')
       .populate('invitations.user', 'name role organization profileImage skills')
+      .populate('joinRequests.user', 'name role organization profileImage skills')
       .populate('finalTeam.user', 'name role organization profileImage skills')
       .populate({
         path: 'workspace',
@@ -320,6 +404,7 @@ const getProjectById = async (req, res) => {
     const project = await ProjectRequirement.findById(req.params.id)
       .populate('owner', 'name role organization profileImage email')
       .populate('invitations.user', 'name role organization profileImage skills')
+      .populate('joinRequests.user', 'name role organization profileImage skills')
       .populate('finalTeam.user', 'name role organization profileImage skills')
       .populate({
         path: 'workspace',
@@ -340,7 +425,357 @@ const getProjectById = async (req, res) => {
 };
 
 /**
- * @desc    Invite a user to a project
+ * @desc    Request to join a team project (Candidate -> Project Owner)
+ * @route   POST /api/team/projects/:id/request-join
+ * @access  Private
+ */
+const requestToJoinProject = async (req, res) => {
+  try {
+    const { role = 'Researcher', message = '' } = req.body;
+    const project = await ProjectRequirement.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    const currentUserId = req.user._id.toString();
+
+    // 1. Owner cannot request to join own project
+    if (project.owner.toString() === currentUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Project owners cannot request to join their own project.'
+      });
+    }
+
+    // 2. Cannot request if already a team member
+    const alreadyMember = project.finalTeam?.some(
+      m => m.user?.toString() === currentUserId
+    );
+    if (alreadyMember) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already an accepted member of this team.'
+      });
+    }
+
+    // 3. Check capacity
+    const maxCapacity = project.desiredTeamSize || 4;
+    if (project.finalTeam?.length >= maxCapacity) {
+      return res.status(400).json({
+        success: false,
+        message: 'This team has already reached maximum capacity.'
+      });
+    }
+
+    // 4. Check for existing active/pending request
+    const existingActiveRequest = project.joinRequests?.find(
+      r => r.user?.toString() === currentUserId && r.status === 'pending'
+    );
+    if (existingActiveRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'A pending join request already exists for this project.'
+      });
+    }
+
+    // 5. Add join request
+    project.joinRequests.push({
+      user: req.user._id,
+      role: role.trim() || 'Researcher',
+      message: message.trim(),
+      status: 'pending',
+      createdAt: new Date()
+    });
+
+    await project.save();
+
+    const createdReq = project.joinRequests[project.joinRequests.length - 1];
+
+    // 6. Notify project owner
+    await createNotification({
+      recipient: project.owner,
+      sender: req.user._id,
+      type: 'team_join_request',
+      title: 'New Team Join Request',
+      message: `${req.user.name || 'A researcher'} requested to join your project "${project.title}".`,
+      project: project._id,
+      requestId: createdReq._id
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Join request submitted successfully. The project owner has been notified.',
+      request: createdReq
+    });
+  } catch (error) {
+    console.error('[Request To Join Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Cancel a pending join request to a project
+ * @route   POST /api/team/projects/:id/cancel-request
+ * @access  Private
+ */
+const cancelJoinRequest = async (req, res) => {
+  try {
+    const project = await ProjectRequirement.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    const currentUserId = req.user._id.toString();
+    const activeReq = project.joinRequests?.find(
+      r => r.user?.toString() === currentUserId && r.status === 'pending'
+    );
+
+    if (!activeReq) {
+      return res.status(404).json({
+        success: false,
+        message: 'No pending join request found to cancel.'
+      });
+    }
+
+    activeReq.status = 'cancelled';
+    activeReq.respondedAt = new Date();
+    await project.save();
+
+    return res.json({
+      success: true,
+      message: 'Your join request was cancelled.'
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get all join requests for a project (Owner only)
+ * @route   GET /api/team/projects/:id/requests
+ * @access  Private
+ */
+const getProjectRequests = async (req, res) => {
+  try {
+    const project = await ProjectRequirement.findById(req.params.id)
+      .populate('joinRequests.user', 'name role organization profileImage skills email');
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only project owner can view team join requests.' });
+    }
+
+    return res.json({
+      success: true,
+      requests: project.joinRequests || []
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Owner Accepts or Rejects a Team Join Request
+ * @route   POST /api/team/projects/:id/requests/:requestId/respond
+ * @access  Private
+ */
+const respondToJoinRequest = async (req, res) => {
+  try {
+    const { action } = req.body; // 'accept' | 'reject'
+    if (!['accept', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action must be accept or reject.' });
+    }
+
+    const project = await ProjectRequirement.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found.' });
+    }
+
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only project owner can respond to join requests.' });
+    }
+
+    const reqItem = project.joinRequests?.id(req.params.requestId);
+    if (!reqItem) {
+      return res.status(404).json({ success: false, message: 'Join request not found.' });
+    }
+
+    if (reqItem.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `This request has already been ${reqItem.status}.`
+      });
+    }
+
+    if (action === 'accept') {
+      // Re-verify capacity
+      const maxCapacity = project.desiredTeamSize || 4;
+      if (project.finalTeam?.length >= maxCapacity) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot accept request: Team has reached maximum capacity.'
+        });
+      }
+
+      reqItem.status = 'accepted';
+      reqItem.respondedAt = new Date();
+
+      // Add to project final team (ensure idempotence)
+      const alreadyMember = project.finalTeam?.some(
+        m => m.user?.toString() === reqItem.user.toString()
+      );
+      if (!alreadyMember) {
+        project.finalTeam.push({
+          user: reqItem.user,
+          role: reqItem.role || 'Researcher',
+          joinedAt: new Date()
+        });
+      }
+
+      // Synchronize associated Workspace membership automatically!
+      let workspace = null;
+      if (project.workspace) {
+        workspace = await Workspace.findById(project.workspace);
+      }
+      if (!workspace) {
+        // Create workspace if missing
+        workspace = await Workspace.create({
+          title: `${project.title} Workspace`,
+          description: project.description,
+          owner: project.owner,
+          project: project._id,
+          status: 'In Progress',
+          members: [
+            { user: project.owner, role: 'Lead', joinedAt: new Date() }
+          ],
+          tasks: [],
+          milestones: [],
+          discussions: []
+        });
+        project.workspace = workspace._id;
+      }
+
+      const wsMemberExists = workspace.members?.some(
+        m => m.user?.toString() === reqItem.user.toString()
+      );
+      if (!wsMemberExists) {
+        workspace.members.push({
+          user: reqItem.user,
+          role: reqItem.role || 'Researcher',
+          joinedAt: new Date()
+        });
+        await workspace.save();
+      }
+
+      // Check if team is now filled
+      if (project.finalTeam.length >= (project.desiredTeamSize || 4)) {
+        project.status = 'TeamFormed';
+      }
+
+      await project.save();
+
+      // Notify the requester
+      await createNotification({
+        recipient: reqItem.user,
+        sender: req.user._id,
+        type: 'team_request_accepted',
+        title: 'Team Request Accepted!',
+        message: `Congratulations! Your request to join "${project.title}" has been accepted. You now have full access to the project workspace and group chat.`,
+        project: project._id,
+        workspace: project.workspace,
+        requestId: reqItem._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'Join request accepted. User added to team and granted workspace access.',
+        request: reqItem,
+        project
+      });
+    } else {
+      // Reject action
+      reqItem.status = 'rejected';
+      reqItem.respondedAt = new Date();
+      await project.save();
+
+      // Notify the requester
+      await createNotification({
+        recipient: reqItem.user,
+        sender: req.user._id,
+        type: 'team_request_rejected',
+        title: 'Team Request Declined',
+        message: `Your request to join "${project.title}" was declined by the project owner.`,
+        project: project._id,
+        requestId: reqItem._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'Join request rejected.',
+        request: reqItem
+      });
+    }
+  } catch (error) {
+    console.error('[Respond To Join Request Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get all join requests sent by the current user
+ * @route   GET /api/team/my-requests
+ * @access  Private
+ */
+const getMySentRequests = async (req, res) => {
+  try {
+    const projects = await ProjectRequirement.find({
+      'joinRequests.user': req.user._id
+    })
+      .populate('owner', 'name role organization profileImage email')
+      .sort({ updatedAt: -1 });
+
+    const requests = [];
+    projects.forEach(proj => {
+      const myReqs = proj.joinRequests?.filter(
+        r => r.user?.toString() === req.user._id.toString()
+      ) || [];
+
+      myReqs.forEach(r => {
+        requests.push({
+          requestId: r._id,
+          projectId: proj._id,
+          projectTitle: proj.title,
+          projectDescription: proj.description,
+          researchDomain: proj.researchDomain,
+          collaborationType: proj.collaborationType,
+          desiredTeamSize: proj.desiredTeamSize,
+          owner: proj.owner,
+          requestedRole: r.role,
+          message: r.message,
+          status: r.status,
+          createdAt: r.createdAt,
+          respondedAt: r.respondedAt,
+          workspaceId: proj.workspace || null
+        });
+      });
+    });
+
+    return res.json({
+      success: true,
+      count: requests.length,
+      requests
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Invite a user to a project (Owner -> Candidate)
  * @route   POST /api/team/projects/:id/invite
  * @access  Private
  */
@@ -362,6 +797,12 @@ const inviteToProject = async (req, res) => {
 
     if (project.owner.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Only project owner can invite teammates.' });
+    }
+
+    // Check capacity
+    const maxCapacity = project.desiredTeamSize || 4;
+    if (project.finalTeam?.length >= maxCapacity) {
+      return res.status(400).json({ success: false, message: 'Team has already reached maximum capacity.' });
     }
 
     // Check if already invited or already on final team
@@ -386,6 +827,16 @@ const inviteToProject = async (req, res) => {
     }
 
     await project.save();
+
+    // Send notification
+    await createNotification({
+      recipient: userId,
+      sender: req.user._id,
+      type: 'team_invite',
+      title: 'Project Team Invitation',
+      message: `${req.user.name || 'A researcher'} invited you to join "${project.title}".`,
+      project: project._id
+    });
 
     const populated = await ProjectRequirement.findById(project._id)
       .populate('invitations.user', 'name role organization profileImage skills')
@@ -487,7 +938,7 @@ const respondToInvitation = async (req, res) => {
         });
       }
 
-      // If workspace is already active, also add user to workspace members
+      // If workspace is active, also add user to workspace members
       if (project.workspace) {
         const ws = await Workspace.findById(project.workspace);
         if (ws) {
@@ -497,13 +948,33 @@ const respondToInvitation = async (req, res) => {
           if (!wsMemberExists) {
             ws.members.push({
               user: req.user._id,
-              role: 'Researcher',
+              role: invite.role || 'Researcher',
               joinedAt: new Date()
             });
             await ws.save();
           }
         }
       }
+
+      // Notify project owner
+      await createNotification({
+        recipient: project.owner,
+        sender: req.user._id,
+        type: 'team_invite_accepted',
+        title: 'Invitation Accepted',
+        message: `${req.user.name || 'A teammate'} accepted your invitation to join "${project.title}".`,
+        project: project._id
+      });
+    } else {
+      // Declined
+      await createNotification({
+        recipient: project.owner,
+        sender: req.user._id,
+        type: 'team_invite_declined',
+        title: 'Invitation Declined',
+        message: `${req.user.name || 'A user'} declined your invitation to join "${project.title}".`,
+        project: project._id
+      });
     }
 
     await project.save();
@@ -518,6 +989,62 @@ const respondToInvitation = async (req, res) => {
       project: populated
     });
   } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Remove a member from team and linked workspace (Owner only)
+ * @route   DELETE /api/team/projects/:id/members/:memberId
+ * @access  Private
+ */
+const removeTeamMember = async (req, res) => {
+  try {
+    const project = await ProjectRequirement.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (project.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only project owner can remove team members.' });
+    }
+
+    const memberId = req.params.memberId;
+    if (memberId === project.owner.toString()) {
+      return res.status(400).json({ success: false, message: 'Cannot remove the project owner.' });
+    }
+
+    // 1. Remove from finalTeam
+    project.finalTeam = project.finalTeam.filter(
+      m => m.user?.toString() !== memberId
+    );
+
+    // 2. Remove from Workspace members immediately (revoking access)
+    if (project.workspace) {
+      await Workspace.findByIdAndUpdate(project.workspace, {
+        $pull: { members: { user: memberId } }
+      });
+    }
+
+    await project.save();
+
+    // 3. Notify removed member
+    await createNotification({
+      recipient: memberId,
+      sender: req.user._id,
+      type: 'member_removed',
+      title: 'Team Membership Updated',
+      message: `You were removed from "${project.title}".`,
+      project: project._id
+    });
+
+    return res.json({
+      success: true,
+      message: 'Member removed and workspace access revoked.',
+      finalTeam: project.finalTeam
+    });
+  } catch (error) {
+    console.error('[Remove Team Member Error]:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -579,32 +1106,28 @@ const finalizeTeam = async (req, res) => {
         title: `${project.title} Workspace`,
         description: project.description,
         owner: req.user._id,
+        project: project._id,
         status: 'In Progress',
         members: workspaceMembers,
         tasks: [
           {
             title: 'Project Kickoff & Objective Alignment',
-            description: 'Review research requirements, assign roles, and align on timeline.',
+            description: project.projectGoals || 'Review research requirements, assign roles, and align on timeline.',
             assignee: req.user._id,
             status: 'To Do',
             priority: 'High'
-          },
-          {
-            title: 'Literature Review & Architecture Design',
-            description: 'Synthesize related work and prepare foundational architecture.',
-            assignee: req.user._id,
-            status: 'To Do',
-            priority: 'Medium'
           }
         ],
         milestones: [
           {
             title: 'Team Formation Completed',
             completed: true
-          },
+          }
+        ],
+        discussions: [
           {
-            title: 'Initial Deliverable / Prototype Review',
-            completed: false
+            sender: req.user._id,
+            content: `Welcome to the ${project.title} workspace collaboration group!`
           }
         ]
       });
@@ -700,9 +1223,15 @@ module.exports = {
   saveProjectRequirement,
   getMyProjectRequirements,
   getProjectById,
+  requestToJoinProject,
+  cancelJoinRequest,
+  getProjectRequests,
+  respondToJoinRequest,
+  getMySentRequests,
   inviteToProject,
   getMyInvitations,
   respondToInvitation,
+  removeTeamMember,
   finalizeTeam,
   completeProject,
   deleteProjectRequirement

@@ -1,6 +1,8 @@
 const Workspace = require('../models/Workspace');
+const ProjectRequirement = require('../models/ProjectRequirement');
 const User = require('../models/User');
 const Connection = require('../models/Connection');
+const { createNotification } = require('../services/notificationService');
 
 /**
  * Helper to check if current user is owner or member of the workspace
@@ -8,7 +10,7 @@ const Connection = require('../models/Connection');
 const checkAccess = (workspace, userId) => {
   if (!workspace || !userId) return false;
   const uId = userId.toString();
-  if (workspace.owner && workspace.owner.toString() === uId) return true;
+  if (workspace.owner && (workspace.owner.toString() === uId || workspace.owner._id?.toString() === uId)) return true;
   return Array.isArray(workspace.members) && workspace.members.some(
     m => m.user && (m.user.toString() === uId || m.user._id?.toString() === uId)
   );
@@ -29,6 +31,8 @@ const getWorkspaces = async (req, res) => {
     })
       .populate('owner', 'name role organization profileImage')
       .populate('members.user', 'name role organization profileImage')
+      .populate('joinRequests.user', 'name role organization profileImage skills email')
+      .populate('project', 'title status researchDomain')
       .sort({ updatedAt: -1 });
 
     const formatted = workspaces.map(w => {
@@ -38,6 +42,7 @@ const getWorkspaces = async (req, res) => {
       const milestoneCount = wObj.milestones?.length || 0;
       const completedMilestoneCount = wObj.milestones?.filter(m => m.completed).length || 0;
       const progressPercent = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0;
+      const pendingRequestCount = wObj.joinRequests?.filter(r => r.status === 'pending').length || 0;
 
       return {
         ...wObj,
@@ -46,6 +51,7 @@ const getWorkspaces = async (req, res) => {
         milestoneCount,
         completedMilestoneCount,
         progressPercent,
+        pendingRequestCount,
         isOwner: wObj.owner?._id?.toString() === req.user._id.toString()
       };
     });
@@ -62,6 +68,66 @@ const getWorkspaces = async (req, res) => {
 };
 
 /**
+ * @desc    Discover public workspaces where current user is NOT a member
+ * @route   GET /api/workspaces/discover
+ * @access  Private
+ */
+const getDiscoverableWorkspaces = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+
+    // Find active public workspaces where user is not owner and not in members
+    const workspaces = await Workspace.find({
+      owner: { $ne: currentUserId },
+      'members.user': { $ne: currentUserId },
+      isPublic: true
+    })
+      .populate('owner', 'name role organization profileImage')
+      .populate('project', 'title researchDomain collaborationType desiredTeamSize')
+      .sort({ createdAt: -1 });
+
+    const formatted = workspaces.map(w => {
+      const wObj = w.toObject();
+      const memberCount = wObj.members?.length || 1;
+      const taskCount = wObj.tasks?.length || 0;
+      const completedTaskCount = wObj.tasks?.filter(t => t.status === 'Completed').length || 0;
+      const progressPercent = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0;
+
+      // Check if current user has an active/pending join request
+      const myRequest = wObj.joinRequests?.find(
+        r => r.user?.toString() === currentUserId.toString()
+      );
+
+      // Do NOT expose private tasks, notes, or discussions
+      return {
+        _id: wObj._id,
+        title: wObj.title,
+        description: wObj.description,
+        status: wObj.status,
+        owner: wObj.owner,
+        project: wObj.project,
+        tags: wObj.tags || [],
+        memberCount,
+        taskCount,
+        progressPercent,
+        createdAt: wObj.createdAt,
+        myRequestStatus: myRequest?.status || null,
+        myRequestId: myRequest?._id || null
+      };
+    });
+
+    return res.json({
+      success: true,
+      count: formatted.length,
+      workspaces: formatted
+    });
+  } catch (error) {
+    console.error('[Discover Workspaces Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
  * @desc    Get single workspace details by ID (Strict access control)
  * @route   GET /api/workspaces/:id
  * @access  Private
@@ -72,7 +138,9 @@ const getWorkspaceById = async (req, res) => {
       .populate('owner', 'name role organization profileImage email')
       .populate('members.user', 'name role organization profileImage')
       .populate('tasks.assignee', 'name role profileImage')
-      .populate('notes.createdBy', 'name role profileImage');
+      .populate('notes.createdBy', 'name role profileImage')
+      .populate('discussions.sender', 'name role profileImage')
+      .populate('project', 'title status researchDomain desiredTeamSize finalTeam');
 
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found' });
@@ -89,6 +157,7 @@ const getWorkspaceById = async (req, res) => {
     const taskCount = wObj.tasks?.length || 0;
     const completedTaskCount = wObj.tasks?.filter(t => t.status === 'Completed').length || 0;
     const progressPercent = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0;
+    const pendingRequestCount = wObj.joinRequests?.filter(r => r.status === 'pending').length || 0;
 
     return res.json({
       success: true,
@@ -97,6 +166,7 @@ const getWorkspaceById = async (req, res) => {
         taskCount,
         completedTaskCount,
         progressPercent,
+        pendingRequestCount,
         isOwner: wObj.owner?._id?.toString() === req.user._id.toString()
       }
     });
@@ -112,7 +182,7 @@ const getWorkspaceById = async (req, res) => {
  */
 const createWorkspace = async (req, res) => {
   try {
-    const { title, description, status = 'Planning', initialMembers = [] } = req.body;
+    const { title, description, status = 'In Progress', initialMembers = [], tags = [] } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({
@@ -145,10 +215,18 @@ const createWorkspace = async (req, res) => {
       description,
       status,
       owner: req.user._id,
+      isPublic: true,
+      tags,
       members,
       tasks: [],
       milestones: [],
-      notes: []
+      notes: [],
+      discussions: [
+        {
+          sender: req.user._id,
+          content: `Welcome to the ${title} workspace collaboration group!`
+        }
+      ]
     });
 
     const populated = await Workspace.findById(workspace._id)
@@ -161,21 +239,448 @@ const createWorkspace = async (req, res) => {
       workspace: populated
     });
   } catch (error) {
-    console.error('[Create Workspace Error]:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
- * @desc    Invite accepted connection to workspace
- * @route   POST /api/workspaces/:id/members
+ * @desc    Request to join an existing workspace
+ * @route   POST /api/workspaces/:id/request-access
  * @access  Private
+ */
+const requestWorkspaceAccess = async (req, res) => {
+  try {
+    const { role = 'Researcher', message = '' } = req.body;
+    const workspace = await Workspace.findById(req.params.id);
+
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    const currentUserId = req.user._id.toString();
+
+    // 1. Cannot request if already owner or member
+    if (checkAccess(workspace, currentUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already a member or owner of this workspace.'
+      });
+    }
+
+    // 2. Check for duplicate active/pending request
+    const existingReq = workspace.joinRequests?.find(
+      r => r.user?.toString() === currentUserId && r.status === 'pending'
+    );
+    if (existingReq) {
+      return res.status(400).json({
+        success: false,
+        message: 'A pending access request already exists for this workspace.'
+      });
+    }
+
+    // 3. Add join request
+    workspace.joinRequests.push({
+      user: req.user._id,
+      role: role.trim() || 'Researcher',
+      message: message.trim(),
+      status: 'pending',
+      createdAt: new Date()
+    });
+
+    await workspace.save();
+
+    const createdReq = workspace.joinRequests[workspace.joinRequests.length - 1];
+
+    // 4. Notify workspace organizer/owner
+    await createNotification({
+      recipient: workspace.owner,
+      sender: req.user._id,
+      type: 'workspace_join_request',
+      title: 'New Workspace Join Request',
+      message: `${req.user.name || 'A researcher'} requested access to workspace "${workspace.title}".`,
+      workspace: workspace._id,
+      requestId: createdReq._id
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Workspace access request sent to organizer.',
+      request: createdReq
+    });
+  } catch (error) {
+    console.error('[Request Workspace Access Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Cancel a pending workspace access request
+ * @route   POST /api/workspaces/:id/cancel-request
+ * @access  Private
+ */
+const cancelWorkspaceRequest = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    const currentUserId = req.user._id.toString();
+    const reqItem = workspace.joinRequests?.find(
+      r => r.user?.toString() === currentUserId && r.status === 'pending'
+    );
+
+    if (!reqItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'No pending request found to cancel.'
+      });
+    }
+
+    reqItem.status = 'cancelled';
+    reqItem.respondedAt = new Date();
+    await workspace.save();
+
+    return res.json({
+      success: true,
+      message: 'Workspace access request cancelled.'
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get all join requests for a workspace (Organizer only)
+ * @route   GET /api/workspaces/:id/requests
+ * @access  Private
+ */
+const getWorkspaceRequests = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id)
+      .populate('joinRequests.user', 'name role organization profileImage skills email');
+
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only workspace organizer can view requests.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      requests: workspace.joinRequests || []
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Organizer Accepts or Rejects Workspace Join Request
+ * @route   POST /api/workspaces/:id/requests/:requestId/respond
+ * @access  Private
+ */
+const respondToWorkspaceRequest = async (req, res) => {
+  try {
+    const { action } = req.body; // 'accept' | 'reject'
+    if (!['accept', 'reject'].includes(action)) {
+      return res.status(400).json({ success: false, message: 'Action must be accept or reject.' });
+    }
+
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only workspace organizer can respond to requests.' });
+    }
+
+    const reqItem = workspace.joinRequests?.id(req.params.requestId);
+    if (!reqItem) {
+      return res.status(404).json({ success: false, message: 'Request not found.' });
+    }
+
+    if (reqItem.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `This request has already been ${reqItem.status}.`
+      });
+    }
+
+    if (action === 'accept') {
+      reqItem.status = 'accepted';
+      reqItem.respondedAt = new Date();
+
+      // Add to workspace members idempotently
+      const alreadyMember = workspace.members.some(
+        m => m.user?.toString() === reqItem.user.toString()
+      );
+      if (!alreadyMember) {
+        workspace.members.push({
+          user: reqItem.user,
+          role: reqItem.role || 'Researcher',
+          joinedAt: new Date()
+        });
+      }
+
+      // Synchronize with linked project if one exists
+      if (workspace.project) {
+        const project = await ProjectRequirement.findById(workspace.project);
+        if (project) {
+          const inFinal = project.finalTeam?.some(
+            m => m.user?.toString() === reqItem.user.toString()
+          );
+          if (!inFinal) {
+            project.finalTeam.push({
+              user: reqItem.user,
+              role: reqItem.role || 'Researcher',
+              joinedAt: new Date()
+            });
+            await project.save();
+          }
+        }
+      }
+
+      await workspace.save();
+
+      // Notify requester
+      await createNotification({
+        recipient: reqItem.user,
+        sender: req.user._id,
+        type: 'workspace_request_accepted',
+        title: 'Workspace Access Granted!',
+        message: `Your request to join workspace "${workspace.title}" has been approved.`,
+        workspace: workspace._id,
+        requestId: reqItem._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'Workspace access granted.',
+        workspace
+      });
+    } else {
+      reqItem.status = 'rejected';
+      reqItem.respondedAt = new Date();
+      await workspace.save();
+
+      // Notify requester
+      await createNotification({
+        recipient: reqItem.user,
+        sender: req.user._id,
+        type: 'workspace_request_rejected',
+        title: 'Workspace Access Request Declined',
+        message: `Your request to join "${workspace.title}" was declined by the organizer.`,
+        workspace: workspace._id,
+        requestId: reqItem._id
+      });
+
+      return res.json({
+        success: true,
+        message: 'Request rejected.',
+        request: reqItem
+      });
+    }
+  } catch (error) {
+    console.error('[Respond To Workspace Request Error]:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Remove a member from workspace and linked project (Organizer only)
+ * @route   DELETE /api/workspaces/:id/members/:memberId
+ * @access  Private
+ */
+const removeWorkspaceMember = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only workspace organizer can remove members.' });
+    }
+
+    const memberId = req.params.memberId;
+    if (memberId === workspace.owner.toString()) {
+      return res.status(400).json({ success: false, message: 'Cannot remove the workspace organizer.' });
+    }
+
+    // 1. Remove from workspace.members
+    workspace.members = workspace.members.filter(
+      m => m.user?.toString() !== memberId
+    );
+
+    // 2. If linked to project, remove from project.finalTeam
+    if (workspace.project) {
+      await ProjectRequirement.findByIdAndUpdate(workspace.project, {
+        $pull: { finalTeam: { user: memberId } }
+      });
+    }
+
+    await workspace.save();
+
+    // 3. Notify removed user
+    await createNotification({
+      recipient: memberId,
+      sender: req.user._id,
+      type: 'member_removed',
+      title: 'Workspace Access Removed',
+      message: `Your membership in workspace "${workspace.title}" was revoked by the organizer.`,
+      workspace: workspace._id
+    });
+
+    return res.json({
+      success: true,
+      message: 'Member removed and access revoked.',
+      members: workspace.members
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get all workspace join requests sent by current user
+ * @route   GET /api/workspaces/my-requests
+ * @access  Private
+ */
+const getMyWorkspaceRequests = async (req, res) => {
+  try {
+    const workspaces = await Workspace.find({
+      'joinRequests.user': req.user._id
+    })
+      .populate('owner', 'name role organization profileImage email')
+      .sort({ updatedAt: -1 });
+
+    const requests = [];
+    workspaces.forEach(ws => {
+      const myReqs = ws.joinRequests?.filter(
+        r => r.user?.toString() === req.user._id.toString()
+      ) || [];
+
+      myReqs.forEach(r => {
+        requests.push({
+          requestId: r._id,
+          workspaceId: ws._id,
+          workspaceTitle: ws.title,
+          workspaceDescription: ws.description,
+          owner: ws.owner,
+          requestedRole: r.role,
+          message: r.message,
+          status: r.status,
+          createdAt: r.createdAt,
+          respondedAt: r.respondedAt
+        });
+      });
+    });
+
+    return res.json({
+      success: true,
+      count: requests.length,
+      requests
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Get workspace group chat / discussions
+ * @route   GET /api/workspaces/:id/messages
+ * @access  Private (Members only)
+ */
+const getWorkspaceMessages = async (req, res) => {
+  try {
+    const workspace = await Workspace.findById(req.params.id)
+      .populate('discussions.sender', 'name role profileImage');
+
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (!checkAccess(workspace, req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You must be a workspace member to view discussions.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      discussions: workspace.discussions || []
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Post a message in workspace group chat
+ * @route   POST /api/workspaces/:id/messages
+ * @access  Private (Members only)
+ */
+const postWorkspaceMessage = async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ success: false, message: 'Message content is required.' });
+    }
+
+    const workspace = await Workspace.findById(req.params.id);
+    if (!workspace) {
+      return res.status(404).json({ success: false, message: 'Workspace not found.' });
+    }
+
+    if (!checkAccess(workspace, req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You must be a workspace member to post discussions.'
+      });
+    }
+
+    workspace.discussions.push({
+      sender: req.user._id,
+      content: content.trim(),
+      createdAt: new Date()
+    });
+
+    await workspace.save();
+
+    const populated = await Workspace.findById(workspace._id)
+      .populate('discussions.sender', 'name role profileImage');
+
+    const createdMsg = populated.discussions[populated.discussions.length - 1];
+
+    return res.status(201).json({
+      success: true,
+      message: 'Message posted.',
+      data: createdMsg
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Invite a member directly by ID
+ * @route   POST /api/workspaces/:id/members
+ * @access  Private (Organizer only)
  */
 const inviteMember = async (req, res) => {
   try {
     const { userId, role = 'Researcher' } = req.body;
+
     if (!userId) {
-      return res.status(400).json({ success: false, message: 'Please provide user ID to invite.' });
+      return res.status(400).json({ success: false, message: 'User ID is required.' });
     }
 
     const workspace = await Workspace.findById(req.params.id);
@@ -183,30 +688,48 @@ const inviteMember = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Workspace not found' });
     }
 
-    if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized to invite members to this workspace' });
+    if (workspace.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Only workspace owner can invite members.' });
     }
 
-    // Check if already a member
-    const alreadyMember = workspace.members.some(m => m.user.toString() === userId.toString());
+    const alreadyMember = workspace.members.some(
+      m => m.user.toString() === userId.toString()
+    );
     if (alreadyMember) {
       return res.status(400).json({ success: false, message: 'User is already a member of this workspace.' });
     }
 
     workspace.members.push({
       user: userId,
-      role: role || 'Researcher',
+      role: role.trim(),
       joinedAt: new Date()
     });
 
+    // Synchronize linked project final team if present
+    if (workspace.project) {
+      await ProjectRequirement.findByIdAndUpdate(workspace.project, {
+        $addToSet: { finalTeam: { user: userId, role: role.trim(), joinedAt: new Date() } }
+      });
+    }
+
     await workspace.save();
+
+    // Notify invited member
+    await createNotification({
+      recipient: userId,
+      sender: req.user._id,
+      type: 'workspace_request_accepted',
+      title: 'Added to Workspace',
+      message: `${req.user.name || 'Organizer'} added you to workspace "${workspace.title}".`,
+      workspace: workspace._id
+    });
 
     const populated = await Workspace.findById(workspace._id)
       .populate('members.user', 'name role organization profileImage');
 
     return res.json({
       success: true,
-      message: 'Teammate added to workspace!',
+      message: 'Member added successfully!',
       members: populated.members
     });
   } catch (error) {
@@ -215,13 +738,14 @@ const inviteMember = async (req, res) => {
 };
 
 /**
- * @desc    Add a task to workspace
+ * @desc    Add a task to the workspace
  * @route   POST /api/workspaces/:id/tasks
- * @access  Private
+ * @access  Private (Members only)
  */
 const addTask = async (req, res) => {
   try {
     const { title, description, assignee, dueDate, priority = 'Medium' } = req.body;
+
     if (!title) {
       return res.status(400).json({ success: false, message: 'Task title is required.' });
     }
@@ -232,27 +756,27 @@ const addTask = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied: Must be a member to add tasks.' });
     }
 
     workspace.tasks.push({
-      title,
-      description: description || '',
+      title: title.trim(),
+      description: description ? description.trim() : '',
       assignee: assignee || req.user._id,
-      dueDate: dueDate ? new Date(dueDate) : null,
+      dueDate: dueDate || null,
       priority,
       status: 'To Do'
     });
 
     await workspace.save();
 
-    const updated = await Workspace.findById(workspace._id)
+    const populated = await Workspace.findById(workspace._id)
       .populate('tasks.assignee', 'name role profileImage');
 
     return res.status(201).json({
       success: true,
-      message: 'Task added successfully',
-      tasks: updated.tasks
+      message: 'Task added successfully!',
+      tasks: populated.tasks
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -262,7 +786,7 @@ const addTask = async (req, res) => {
 /**
  * @desc    Update task status or details
  * @route   PATCH /api/workspaces/:id/tasks/:taskId
- * @access  Private
+ * @access  Private (Members only)
  */
 const updateTask = async (req, res) => {
   try {
@@ -272,7 +796,7 @@ const updateTask = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
     const task = workspace.tasks.id(req.params.taskId);
@@ -280,22 +804,23 @@ const updateTask = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
-    const { status, title, description, priority, assignee } = req.body;
-    if (status !== undefined) task.status = status;
-    if (title !== undefined) task.title = title;
-    if (description !== undefined) task.description = description;
-    if (priority !== undefined) task.priority = priority;
-    if (assignee !== undefined) task.assignee = assignee;
+    const { status, title, description, priority, assignee, dueDate } = req.body;
+    if (status) task.status = status;
+    if (title) task.title = title.trim();
+    if (description !== undefined) task.description = description.trim();
+    if (priority) task.priority = priority;
+    if (assignee) task.assignee = assignee;
+    if (dueDate) task.dueDate = dueDate;
 
     await workspace.save();
 
-    const updated = await Workspace.findById(workspace._id)
+    const populated = await Workspace.findById(workspace._id)
       .populate('tasks.assignee', 'name role profileImage');
 
     return res.json({
       success: true,
-      message: 'Task updated successfully',
-      tasks: updated.tasks
+      message: 'Task updated!',
+      tasks: populated.tasks
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -305,7 +830,7 @@ const updateTask = async (req, res) => {
 /**
  * @desc    Delete a task
  * @route   DELETE /api/workspaces/:id/tasks/:taskId
- * @access  Private
+ * @access  Private (Members only)
  */
 const deleteTask = async (req, res) => {
   try {
@@ -315,15 +840,18 @@ const deleteTask = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    workspace.tasks = workspace.tasks.filter(t => t._id.toString() !== req.params.taskId);
+    workspace.tasks = workspace.tasks.filter(
+      t => t._id.toString() !== req.params.taskId
+    );
+
     await workspace.save();
 
     return res.json({
       success: true,
-      message: 'Task deleted successfully',
+      message: 'Task deleted successfully!',
       tasks: workspace.tasks
     });
   } catch (error) {
@@ -332,9 +860,9 @@ const deleteTask = async (req, res) => {
 };
 
 /**
- * @desc    Add project milestone
+ * @desc    Add a milestone
  * @route   POST /api/workspaces/:id/milestones
- * @access  Private
+ * @access  Private (Members only)
  */
 const addMilestone = async (req, res) => {
   try {
@@ -349,12 +877,12 @@ const addMilestone = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
     workspace.milestones.push({
-      title,
-      targetDate: targetDate ? new Date(targetDate) : null,
+      title: title.trim(),
+      targetDate: targetDate || null,
       completed: false
     });
 
@@ -362,7 +890,7 @@ const addMilestone = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: 'Milestone added successfully',
+      message: 'Milestone added!',
       milestones: workspace.milestones
     });
   } catch (error) {
@@ -373,7 +901,7 @@ const addMilestone = async (req, res) => {
 /**
  * @desc    Toggle milestone completion
  * @route   PATCH /api/workspaces/:id/milestones/:mId
- * @access  Private
+ * @access  Private (Members only)
  */
 const toggleMilestone = async (req, res) => {
   try {
@@ -383,20 +911,20 @@ const toggleMilestone = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    const m = workspace.milestones.id(req.params.mId);
-    if (!m) {
+    const milestone = workspace.milestones.id(req.params.mId);
+    if (!milestone) {
       return res.status(404).json({ success: false, message: 'Milestone not found' });
     }
 
-    m.completed = !m.completed;
+    milestone.completed = !milestone.completed;
     await workspace.save();
 
     return res.json({
       success: true,
-      message: 'Milestone updated',
+      message: `Milestone marked as ${milestone.completed ? 'completed' : 'pending'}!`,
       milestones: workspace.milestones
     });
   } catch (error) {
@@ -405,15 +933,15 @@ const toggleMilestone = async (req, res) => {
 };
 
 /**
- * @desc    Add shared research note or link
+ * @desc    Add a collaborative note or research link
  * @route   POST /api/workspaces/:id/notes
- * @access  Private
+ * @access  Private (Members only)
  */
 const addNote = async (req, res) => {
   try {
     const { title, content, linkUrl } = req.body;
-    if (!title && !content) {
-      return res.status(400).json({ success: false, message: 'Note title or content is required.' });
+    if (!title) {
+      return res.status(400).json({ success: false, message: 'Note title is required.' });
     }
 
     const workspace = await Workspace.findById(req.params.id);
@@ -422,25 +950,25 @@ const addNote = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
     workspace.notes.push({
-      title: title || 'Research Note',
-      content: content || '',
-      linkUrl: linkUrl || '',
+      title: title.trim(),
+      content: content ? content.trim() : '',
+      linkUrl: linkUrl ? linkUrl.trim() : '',
       createdBy: req.user._id
     });
 
     await workspace.save();
 
-    const updated = await Workspace.findById(workspace._id)
+    const populated = await Workspace.findById(workspace._id)
       .populate('notes.createdBy', 'name role profileImage');
 
     return res.status(201).json({
       success: true,
-      message: 'Note shared with team',
-      notes: updated.notes
+      message: 'Note added!',
+      notes: populated.notes
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -448,9 +976,9 @@ const addNote = async (req, res) => {
 };
 
 /**
- * @desc    Delete shared note
+ * @desc    Delete a note
  * @route   DELETE /api/workspaces/:id/notes/:noteId
- * @access  Private
+ * @access  Private (Members only)
  */
 const deleteNote = async (req, res) => {
   try {
@@ -460,15 +988,18 @@ const deleteNote = async (req, res) => {
     }
 
     if (!checkAccess(workspace, req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+      return res.status(403).json({ success: false, message: 'Access denied.' });
     }
 
-    workspace.notes = workspace.notes.filter(n => n._id.toString() !== req.params.noteId);
+    workspace.notes = workspace.notes.filter(
+      n => n._id.toString() !== req.params.noteId
+    );
+
     await workspace.save();
 
     return res.json({
       success: true,
-      message: 'Note removed',
+      message: 'Note deleted!',
       notes: workspace.notes
     });
   } catch (error) {
@@ -478,8 +1009,17 @@ const deleteNote = async (req, res) => {
 
 module.exports = {
   getWorkspaces,
+  getDiscoverableWorkspaces,
   getWorkspaceById,
   createWorkspace,
+  requestWorkspaceAccess,
+  cancelWorkspaceRequest,
+  getWorkspaceRequests,
+  respondToWorkspaceRequest,
+  removeWorkspaceMember,
+  getMyWorkspaceRequests,
+  getWorkspaceMessages,
+  postWorkspaceMessage,
   inviteMember,
   addTask,
   updateTask,

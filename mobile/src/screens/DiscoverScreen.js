@@ -23,45 +23,11 @@ import LoadingView from '../components/LoadingView';
 import EmptyStateView from '../components/EmptyStateView';
 import { COLORS, SHADOWS } from '../theme/theme';
 
-// Safely import react-native-maps ONLY on native platforms (iOS / Android)
-let MapView = null, Marker = null, Circle = null, PROVIDER_DEFAULT = null;
-if (Platform.OS !== 'web') {
-  try {
-    const Maps = require('react-native-maps');
-    MapView = Maps.default;
-    Marker = Maps.Marker;
-    Circle = Maps.Circle;
-    PROVIDER_DEFAULT = Maps.PROVIDER_DEFAULT;
-  } catch (err) {
-    console.warn('[Native Map Module Load Guard]:', err.message);
-  }
-}
+
 
 const { width } = Dimensions.get('window');
+const RADAR_HEIGHT = 260;
 const MAP_HEIGHT = 260;
-
-// Minimalist, modern map style with subtle sage-green roads
-const WARM_SAGE_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#F7F5F0' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#3A443E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#F7F5F0' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#D5DDD7' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#E5EFE7' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#E8EFEA' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#D9E3DC' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#DCE8DE' }] },
-  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#F0EFE9' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#DFEAE2' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#688272' }] }
-];
-
-const getRadiusDeltas = (r) => {
-  if (r <= 100) return { latitudeDelta: 0.003, longitudeDelta: 0.003 };
-  if (r <= 500) return { latitudeDelta: 0.012, longitudeDelta: 0.012 };
-  return { latitudeDelta: 0.024, longitudeDelta: 0.024 };
-};
 
 const DiscoverScreen = ({ navigation }) => {
   const { coordinates, locationStatus, requestAndSaveLocation } = useLocation();
@@ -74,8 +40,6 @@ const DiscoverScreen = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [fullModalProfile, setFullModalProfile] = useState(null);
-  const [mapError, setMapError] = useState(false);
-  const mapRef = useRef(null);
 
   const userLat = coordinates?.latitude || 0;
   const userLng = coordinates?.longitude || 0;
@@ -127,26 +91,10 @@ const DiscoverScreen = ({ navigation }) => {
     setRadius(newRadius);
     setSelectedProfile(null);
     fetchNearby(newRadius);
-    if (mapRef.current && hasValidCoords) {
-      const deltas = getRadiusDeltas(newRadius);
-      mapRef.current.animateToRegion({
-        latitude: userLat,
-        longitude: userLng,
-        ...deltas
-      }, 500);
-    }
   };
 
   const handleMarkerPress = (user) => {
     setSelectedProfile(user);
-    if (mapRef.current && user.mapPosition?.latitude) {
-      mapRef.current.animateToRegion({
-        latitude: user.mapPosition.latitude,
-        longitude: user.mapPosition.longitude,
-        latitudeDelta: 0.008,
-        longitudeDelta: 0.008
-      }, 500);
-    }
   };
 
   // Filter nearby professionals by Search Query
@@ -166,15 +114,6 @@ const DiscoverScreen = ({ navigation }) => {
       return nameMatch || roleMatch || orgMatch || skillMatch || interestMatch;
     });
   }, [nearbyUsers, searchQuery]);
-
-  const mapRegion = useMemo(() => {
-    const deltas = getRadiusDeltas(radius);
-    return {
-      latitude: hasValidCoords ? userLat : 37.78825,
-      longitude: hasValidCoords ? userLng : -122.4324,
-      ...deltas
-    };
-  }, [userLat, userLng, radius, hasValidCoords]);
 
   return (
     <View style={styles.container}>
@@ -220,42 +159,30 @@ const DiscoverScreen = ({ navigation }) => {
           })}
         </View>
 
-        {/* Quick Collaboration & Hub Chips */}
+        {/* Quick Collaboration Shortcuts: Workspaces & Papers */}
         <View style={styles.hubContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hubScroll}>
-            <TouchableOpacity
-              style={styles.hubPill}
-              onPress={() => navigation.navigate('Events')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="calendar-outline" size={14} color={COLORS.primary || '#007AFF'} style={styles.hubIcon} />
-              <Text style={styles.hubText}>Events</Text>
-            </TouchableOpacity>
+          <View style={styles.hubRow}>
             <TouchableOpacity
               style={styles.hubPill}
               onPress={() => navigation.navigate('Workspaces')}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Open Workspaces"
             >
-              <Ionicons name="flask-outline" size={14} color={COLORS.primary || '#007AFF'} style={styles.hubIcon} />
+              <Ionicons name="flask-outline" size={15} color={COLORS.primary || '#24563B'} style={styles.hubIcon} />
               <Text style={styles.hubText}>Workspaces</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.hubPill}
               onPress={() => navigation.navigate('ResearchDiscovery')}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Discover Research Papers"
             >
-              <Ionicons name="document-text-outline" size={14} color={COLORS.primary || '#007AFF'} style={styles.hubIcon} />
+              <Ionicons name="document-text-outline" size={15} color={COLORS.primary || '#24563B'} style={styles.hubIcon} />
               <Text style={styles.hubText}>Papers</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.hubPill}
-              onPress={() => navigation.navigate('QRProfile')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="qr-code-outline" size={14} color={COLORS.primary || '#007AFF'} style={styles.hubIcon} />
-              <Text style={styles.hubText}>My QR</Text>
-            </TouchableOpacity>
-          </ScrollView>
+          </View>
         </View>
       </View>
 
@@ -295,202 +222,129 @@ const DiscoverScreen = ({ navigation }) => {
               </View>
             )}
 
-            {/* Map Visualizer */}
-            <View style={styles.mapWrapper}>
-              {MapView && !mapError && Platform.OS !== 'web' ? (
-                <MapView
-                  ref={mapRef}
-                  style={styles.map}
-                  provider={PROVIDER_DEFAULT}
-                  customMapStyle={WARM_SAGE_MAP_STYLE}
-                  initialRegion={mapRegion}
-                  onPress={() => setSelectedProfile(null)}
-                  onError={(e) => {
-                    console.warn('[MapView Error]:', e?.nativeEvent?.error || e);
-                    setMapError(true);
-                  }}
-                  showsUserLocation={false}
-                  showsCompass={false}
-                  toolbarEnabled={false}
+            {/* Circular Proximity Radar Visualizer (Radar Only) */}
+            <View style={styles.radarWrapper}>
+              <View style={styles.radarContainer}>
+                {/* Axis Crosshairs */}
+                <View style={styles.radarAxisH} />
+                <View style={styles.radarAxisV} />
+
+                {/* 100m Circle - always shown */}
+                <View
+                  style={[
+                    styles.radarRing,
+                    { width: 70, height: 70, borderRadius: 35 },
+                    radius === 100 && styles.radarRingActive
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.radarDistTag,
+                    { top: '50%', left: '50%', marginTop: -43, marginLeft: 6 },
+                    radius === 100 && styles.radarDistTagActive
+                  ]}
                 >
-                  {/* Selected Radius Circle */}
-                  {hasValidCoords && (
-                    <Circle
-                      center={{ latitude: userLat, longitude: userLng }}
-                      radius={radius}
-                      fillColor="rgba(0, 122, 255, 0.08)"
-                      strokeColor="rgba(0, 122, 255, 0.35)"
-                      strokeWidth={1.5}
+                  100m
+                </Text>
+
+                {/* 500m Circle - ONLY visible when radius is 500m or 1000m */}
+                {radius >= 500 && (
+                  <>
+                    <View
+                      style={[
+                        styles.radarRing,
+                        { width: 140, height: 140, borderRadius: 70 },
+                        radius === 500 && styles.radarRingActive
+                      ]}
                     />
-                  )}
-
-                  {/* Current User Marker */}
-                  {hasValidCoords && (
-                    <Marker
-                      coordinate={{ latitude: userLat, longitude: userLng }}
-                      title="You"
-                      description="Your discovery center"
+                    <Text
+                      style={[
+                        styles.radarDistTag,
+                        { top: '50%', left: '50%', marginTop: -78, marginLeft: 6 },
+                        radius === 500 && styles.radarDistTagActive
+                      ]}
                     >
-                      <View style={styles.myMarker}>
-                        <View style={styles.myMarkerPulse} />
-                        <View style={styles.myMarkerDot}>
-                          <Text style={styles.myMarkerText}>YOU</Text>
-                        </View>
-                      </View>
-                    </Marker>
-                  )}
+                      500m
+                    </Text>
+                  </>
+                )}
 
-                  {/* Nearby Professionals Markers */}
-                  {filteredUsers.map((user) => {
-                    const pos = user.mapPosition;
-                    if (!pos || typeof pos.latitude !== 'number' || typeof pos.longitude !== 'number') {
-                      return null;
-                    }
-                    const isSelected = selectedProfile?._id === user._id;
-                    const avatarUrl =
-                      user.profileImage ||
-                      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
-                    return (
-                      <Marker
-                        key={user._id}
-                        coordinate={{ latitude: pos.latitude, longitude: pos.longitude }}
-                        onPress={() => handleMarkerPress(user)}
-                        tracksViewChanges={false}
-                      >
-                        <View style={[styles.peerMarker, isSelected && styles.peerMarkerSelected]}>
-                          <Image source={{ uri: avatarUrl }} style={styles.peerMarkerAvatar} />
-                          {Boolean(user.matchScore) && (
-                            <View style={styles.peerMarkerBadge}>
-                              <Text style={styles.peerMarkerBadgeText}>{user.matchScore}%</Text>
-                            </View>
-                          )}
-                        </View>
-                      </Marker>
-                    );
-                  })}
-                </MapView>
-              ) : (
-                /* Interactive Proximity Radar on Web / Unsupported environments */
-                <View style={styles.radarContainer}>
-                  {/* Axis Crosshairs */}
-                  <View style={styles.radarAxisH} />
-                  <View style={styles.radarAxisV} />
+                {/* 1km Circle - ONLY visible when radius is 1000m (1km) */}
+                {radius >= 1000 && (
+                  <>
+                    <View
+                      style={[
+                        styles.radarRing,
+                        { width: 220, height: 220, borderRadius: 110 },
+                        styles.radarRingActive
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.radarDistTag,
+                        { top: '50%', left: '50%', marginTop: -118, marginLeft: 6 },
+                        styles.radarDistTagActive
+                      ]}
+                    >
+                      1km
+                    </Text>
+                  </>
+                )}
 
-                  {/* 100m Circle - always shown */}
-                  <View
-                    style={[
-                      styles.radarRing,
-                      { width: 70, height: 70, borderRadius: 35 },
-                      radius === 100 && styles.radarRingActive
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.radarDistTag,
-                      { top: '50%', left: '50%', marginTop: -43, marginLeft: 6 },
-                      radius === 100 && styles.radarDistTagActive
-                    ]}
-                  >
-                    100m
-                  </Text>
-
-                  {/* 500m Circle - ONLY visible when radius is 500m or 1000m */}
-                  {radius >= 500 && (
-                    <>
-                      <View
-                        style={[
-                          styles.radarRing,
-                          { width: 140, height: 140, borderRadius: 70 },
-                          radius === 500 && styles.radarRingActive
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.radarDistTag,
-                          { top: '50%', left: '50%', marginTop: -78, marginLeft: 6 },
-                          radius === 500 && styles.radarDistTagActive
-                        ]}
-                      >
-                        500m
-                      </Text>
-                    </>
-                  )}
-
-                  {/* 1km Circle - ONLY visible when radius is 1000m (1km) */}
-                  {radius >= 1000 && (
-                    <>
-                      <View
-                        style={[
-                          styles.radarRing,
-                          { width: 220, height: 220, borderRadius: 110 },
-                          styles.radarRingActive
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.radarDistTag,
-                          { top: '50%', left: '50%', marginTop: -118, marginLeft: 6 },
-                          styles.radarDistTagActive
-                        ]}
-                      >
-                        1km
-                      </Text>
-                    </>
-                  )}
-
-                  {/* Center "YOU" avatar */}
-                  <View style={styles.radarCenterAvatar}>
-                    <Text style={styles.radarCenterText}>YOU</Text>
-                  </View>
-
-                  {/* Discovered Nearby Peers Nodes */}
-                  {filteredUsers.slice(0, 8).map((peer, idx) => {
-                    const angle = (idx * (360 / Math.max(Math.min(filteredUsers.length, 8), 1)) + 35) * (Math.PI / 180);
-                    let orbitRadius;
-                    if (radius === 1000) {
-                      orbitRadius = 45 + ((idx % 3) * 26);
-                    } else if (radius === 500) {
-                      orbitRadius = 36 + ((idx % 3) * 13);
-                    } else {
-                      orbitRadius = 24 + ((idx % 3) * 4);
-                    }
-                    const x = Math.cos(angle) * orbitRadius;
-                    const y = Math.sin(angle) * orbitRadius;
-                    const isSelected = selectedProfile?._id === peer._id;
-                    return (
-                      <TouchableOpacity
-                        key={peer._id}
-                        style={[
-                          styles.radarPeerNode,
-                          { transform: [{ translateX: x }, { translateY: y }] },
-                          isSelected && styles.radarPeerNodeSelected
-                        ]}
-                        onPress={() => setSelectedProfile(peer)}
-                        activeOpacity={0.8}
-                      >
-                        <Image
-                          source={{
-                            uri:
-                              peer.profileImage ||
-                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
-                          }}
-                          style={styles.radarPeerAvatar}
-                        />
-                        {Boolean(peer.matchScore) && (
-                          <View style={styles.radarPeerBadge}>
-                            <Text style={styles.radarPeerBadgeText}>{peer.matchScore}%</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
+                {/* Center "YOU" avatar */}
+                <View style={styles.radarCenterAvatar}>
+                  <Text style={styles.radarCenterText}>YOU</Text>
                 </View>
-              )}
 
-              {/* Map Legend Overlay */}
+                {/* Discovered Nearby Peers Nodes */}
+                {filteredUsers.slice(0, 8).map((peer, idx) => {
+                  const angle = (idx * (360 / Math.max(Math.min(filteredUsers.length, 8), 1)) + 35) * (Math.PI / 180);
+                  let orbitRadius;
+                  if (radius === 1000) {
+                    orbitRadius = 45 + ((idx % 3) * 26);
+                  } else if (radius === 500) {
+                    orbitRadius = 36 + ((idx % 3) * 13);
+                  } else {
+                    orbitRadius = 24 + ((idx % 3) * 4);
+                  }
+                  const x = Math.cos(angle) * orbitRadius;
+                  const y = Math.sin(angle) * orbitRadius;
+                  const isSelected = selectedProfile?._id === peer._id;
+                  return (
+                    <TouchableOpacity
+                      key={peer._id}
+                      style={[
+                        styles.radarPeerNode,
+                        { transform: [{ translateX: x }, { translateY: y }] },
+                        isSelected && styles.radarPeerNodeSelected
+                      ]}
+                      onPress={() => setSelectedProfile(peer)}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${peer.name || 'peer'}`}
+                    >
+                      <Image
+                        source={{
+                          uri:
+                            peer.profileImage ||
+                            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
+                        }}
+                        style={styles.radarPeerAvatar}
+                      />
+                      {Boolean(peer.matchScore) && (
+                        <View style={styles.radarPeerBadge}>
+                          <Text style={styles.radarPeerBadgeText}>{peer.matchScore}%</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Radar Legend Overlay */}
               <View style={styles.mapLegend}>
                 <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: COLORS.primary || '#007AFF' }]} />
+                  <View style={[styles.legendDot, { backgroundColor: COLORS.primary || '#24563B' }]} />
                   <Text style={styles.legendText}>You</Text>
                 </View>
                 <View style={styles.legendItem}>
@@ -688,41 +542,45 @@ const styles = StyleSheet.create({
   },
   hubContainer: {
     marginTop: 10,
-    paddingTop: 10,
+    paddingTop: 8,
     borderTopWidth: 0.5,
     borderTopColor: COLORS.border || 'rgba(0,0,0,0.06)',
   },
-  hubScroll: {
-    gap: 8,
-    paddingRight: 10,
+  hubRow: {
+    flexDirection: 'row',
+    gap: 10,
   },
   hubPill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.bgInput || '#EFEFF4',
-    borderRadius: 16,
+    justifyContent: 'center',
+    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 9,
+    borderWidth: 0.5,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.06)',
   },
   hubIcon: {
-    marginRight: 5,
+    marginRight: 6,
   },
   hubText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: COLORS.primary || '#007AFF',
+    color: COLORS.primary || '#24563B',
   },
   listContent: {
     padding: 16,
     paddingBottom: 32,
   },
-  mapWrapper: {
-    height: MAP_HEIGHT,
+  radarWrapper: {
+    height: RADAR_HEIGHT,
     borderRadius: 18,
     overflow: 'hidden',
     borderWidth: 0.5,
     borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
-    backgroundColor: '#F7F5F0',
+    backgroundColor: '#F9F8F5',
     marginBottom: 14,
     position: 'relative',
     ...Platform.select({
@@ -735,10 +593,6 @@ const styles = StyleSheet.create({
         shadowRadius: 6,
       },
     }),
-  },
-  map: {
-    width: '100%',
-    height: '100%',
   },
   radarContainer: {
     width: '100%',
@@ -787,7 +641,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: COLORS.primary || '#007AFF',
+    backgroundColor: COLORS.primary || '#24563B',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -805,7 +659,7 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: COLORS.primary || '#007AFF',
+    borderColor: COLORS.primary || '#24563B',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -825,7 +679,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -6,
     right: -6,
-    backgroundColor: COLORS.primary || '#007AFF',
+    backgroundColor: COLORS.primary || '#24563B',
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 8,
@@ -865,66 +719,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     color: COLORS.textMain || '#1C1C1E',
-  },
-  myMarker: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  myMarkerPulse: {
-    position: 'absolute',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0, 122, 255, 0.2)',
-  },
-  myMarkerDot: {
-    backgroundColor: COLORS.primary || '#007AFF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-  },
-  myMarkerText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  peerMarker: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 2,
-    borderColor: COLORS.primary || '#007AFF',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  peerMarkerSelected: {
-    borderColor: '#34C759',
-    borderWidth: 3,
-    transform: [{ scale: 1.15 }],
-  },
-  peerMarkerAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  peerMarkerBadge: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    backgroundColor: COLORS.primary || '#007AFF',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FFFFFF',
-  },
-  peerMarkerBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 8,
-    fontWeight: '700',
   },
   previewCard: {
     backgroundColor: COLORS.bgCard || '#FFFFFF',
