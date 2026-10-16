@@ -43,15 +43,23 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    const data = await apiLogin({ email, password });
-    if (data.success && data.token) {
-      setToken(data.token);
-      setUser(data.user);
-      await saveToken(data.token);
-      await saveUserData(data.user);
-      return { success: true };
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const data = await apiLogin({ email: cleanEmail, password });
+      if (data.success && data.token) {
+        setToken(data.token);
+        setUser(data.user);
+        await saveToken(data.token);
+        await saveUserData(data.user);
+        return { success: true };
+      }
+      return { success: false, message: data.message || 'Invalid email or password' };
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.message || err.message || 'Invalid email or password'
+      };
     }
-    return { success: false, message: data.message || 'Login failed' };
   };
 
   const register = async (userData) => {

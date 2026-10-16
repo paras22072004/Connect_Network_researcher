@@ -30,8 +30,10 @@ const registerUser = async (req, res) => {
       });
     }
 
+    const normalizedEmail = (email || '').trim().toLowerCase();
+
     // Check if user already exists
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       return res.status(400).json({
         success: false,
@@ -49,8 +51,8 @@ const registerUser = async (req, res) => {
 
     // Create new user in database
     const user = await User.create({
-      name,
-      email,
+      name: (name || '').trim(),
+      email: normalizedEmail,
       password,
       role,
       organization,
@@ -122,8 +124,10 @@ const loginUser = async (req, res) => {
       });
     }
 
+    const normalizedEmail = (email || '').trim().toLowerCase();
+
     // Find user by email including the password field (since it is set to select: false)
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
     if (user && (await user.matchPassword(password))) {
       const token = generateToken(user._id);

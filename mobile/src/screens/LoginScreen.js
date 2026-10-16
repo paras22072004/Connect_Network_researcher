@@ -32,10 +32,10 @@ const LoginScreen = ({ navigation }) => {
     try {
       const res = await login(email.trim(), password);
       if (!res.success) {
-        setError(res.message || 'Invalid credentials');
+        setError(res.message || 'Invalid email or password');
       }
     } catch (err) {
-      setError('Login failed. Please check network connection.');
+      setError(err.response?.data?.message || err.message || 'Login failed. Please check email and password.');
     } finally {
       setLoading(false);
     }
