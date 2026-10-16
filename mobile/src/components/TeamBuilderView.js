@@ -78,7 +78,6 @@ const PROJECT_PRESETS = [
 
 const TeamBuilderView = ({ navigation }) => {
   const { user: currentUser } = useAuth();
-
   // Sub-tabs: 'projects' | 'create' | 'requests' | 'invitations'
   const [subTab, setSubTab] = useState('projects');
   // Requests toggle: 'incoming' | 'sent'
@@ -239,16 +238,13 @@ const TeamBuilderView = ({ navigation }) => {
       Alert.alert('Missing Details', 'Please enter a project title and description to run AI matching.');
       return;
     }
-
     setSearching(true);
     setSearched(true);
-
     try {
       const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
       const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
       const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
 
-      // Auto-save or create project requirement if not already created
       let pId = currentProjectId;
       if (!pId) {
         const saveRes = await saveProjectApi({
@@ -268,7 +264,6 @@ const TeamBuilderView = ({ navigation }) => {
         }
       }
 
-      // Fetch AI recommendations
       const recRes = await recommendTeammatesApi({
         title: title.trim(),
         description: description.trim(),
@@ -280,7 +275,6 @@ const TeamBuilderView = ({ navigation }) => {
         projectGoals: projectGoals.trim(),
         timeline: timeline.trim()
       });
-
       if (recRes.success) {
         setRecommendations(recRes.recommendations || []);
       }
@@ -300,7 +294,6 @@ const TeamBuilderView = ({ navigation }) => {
         const parseSkills = requiredSkills.split(',').map((s) => s.trim()).filter(Boolean);
         const parseRoles = desiredRoles.split(',').map((r) => r.trim()).filter(Boolean);
         const teamSizeNum = parseInt(desiredTeamSize, 10) || 4;
-
         const saveRes = await saveProjectApi({
           title: title.trim() || 'Research Project',
           description: description.trim() || 'Collaborative research exploration',
@@ -334,7 +327,6 @@ const TeamBuilderView = ({ navigation }) => {
         userId: candidate._id,
         role: candidate.role || 'Researcher'
       });
-
       if (res.success) {
         showNotice(`Invitation sent to ${candidate.name}!`);
         setRecommendations((prev) =>
@@ -431,7 +423,6 @@ const TeamBuilderView = ({ navigation }) => {
     if (currentStatus === 'To Do') nextStatus = 'In Progress';
     else if (currentStatus === 'In Progress') nextStatus = 'Completed';
     else if (currentStatus === 'Completed') nextStatus = 'To Do';
-
     try {
       const res = await updateTaskApi(workspaceId, taskId, { status: nextStatus });
       if (res.success) {
@@ -454,7 +445,6 @@ const TeamBuilderView = ({ navigation }) => {
     }
     const wsId = selectedProject?.workspace?._id || selectedProject?.workspace;
     if (!wsId) return;
-
     setAddingTask(true);
     try {
       const res = await addTaskApi(wsId, {
@@ -462,7 +452,6 @@ const TeamBuilderView = ({ navigation }) => {
         description: newTaskDesc.trim(),
         priority: newTaskPriority
       });
-
       if (res.success) {
         setNewTaskTitle('');
         setNewTaskDesc('');
@@ -561,7 +550,7 @@ const TeamBuilderView = ({ navigation }) => {
         </View>
       ) : null}
 
-      {/* Sub-Tabs: My Projects | + Build Team | Requests | Invites */}
+      {/* Clean Icons-Free Sub-Tabs: Projects | + Build | Requests | Invites */}
       <View style={styles.subTabBar}>
         <TouchableOpacity
           style={[styles.subTabBtn, subTab === 'projects' && styles.subTabBtnActive]}
@@ -570,12 +559,6 @@ const TeamBuilderView = ({ navigation }) => {
           accessibilityRole="tab"
           accessibilityLabel="My Projects tab"
         >
-          <Ionicons
-            name={subTab === 'projects' ? 'layers' : 'layers-outline'}
-            size={15}
-            color={subTab === 'projects' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 4 }}
-          />
           <Text style={[styles.subTabBtnText, subTab === 'projects' && styles.subTabBtnTextActive]}>
             Projects ({myProjects.length})
           </Text>
@@ -588,12 +571,6 @@ const TeamBuilderView = ({ navigation }) => {
           accessibilityRole="tab"
           accessibilityLabel="Build Team tab"
         >
-          <Ionicons
-            name={subTab === 'create' ? 'sparkles' : 'sparkles-outline'}
-            size={15}
-            color={subTab === 'create' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 4 }}
-          />
           <Text style={[styles.subTabBtnText, subTab === 'create' && styles.subTabBtnTextActive]}>
             + Build
           </Text>
@@ -606,12 +583,6 @@ const TeamBuilderView = ({ navigation }) => {
           accessibilityRole="tab"
           accessibilityLabel="Team Requests tab"
         >
-          <Ionicons
-            name={subTab === 'requests' ? 'people' : 'people-outline'}
-            size={15}
-            color={subTab === 'requests' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 4 }}
-          />
           <Text style={[styles.subTabBtnText, subTab === 'requests' && styles.subTabBtnTextActive]}>
             Requests
           </Text>
@@ -629,12 +600,6 @@ const TeamBuilderView = ({ navigation }) => {
           accessibilityRole="tab"
           accessibilityLabel="Project Invites tab"
         >
-          <Ionicons
-            name={subTab === 'invitations' ? 'mail-unread' : 'mail-unread-outline'}
-            size={15}
-            color={subTab === 'invitations' ? COLORS.primary : COLORS.textMuted}
-            style={{ marginRight: 4 }}
-          />
           <Text style={[styles.subTabBtnText, subTab === 'invitations' && styles.subTabBtnTextActive]}>
             Invites
           </Text>
@@ -687,7 +652,6 @@ const TeamBuilderView = ({ navigation }) => {
               const hasWorkspace = Boolean(proj.workspace);
               const isCompleted = proj.status === 'Completed';
               const capacity = proj.desiredTeamSize || 4;
-
               const ws = proj.workspace;
               const totalTasks = ws?.tasks?.length || 0;
               const completedTasks = ws?.tasks?.filter((t) => t.status === 'Completed').length || 0;
@@ -801,7 +765,6 @@ const TeamBuilderView = ({ navigation }) => {
                       <Ionicons name="eye-outline" size={14} color={COLORS.primary} style={{ marginRight: 4 }} />
                       <Text style={styles.btnCardActionText}>Manage Project & Tasks</Text>
                     </TouchableOpacity>
-
                     {isOwner && (
                       <TouchableOpacity
                         onPress={() => handleDeleteProject(proj._id)}
@@ -836,9 +799,7 @@ const TeamBuilderView = ({ navigation }) => {
                   Step 1: Details
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={14} color={COLORS.textLight} style={{ marginHorizontal: 2 }} />
-
               {/* Step 2 */}
               <View style={[styles.topStepBadge, activeCreationStep >= 2 && styles.topStepBadgeActive]}>
                 <Ionicons
@@ -851,9 +812,7 @@ const TeamBuilderView = ({ navigation }) => {
                   Step 2: AI People
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={14} color={COLORS.textLight} style={{ marginHorizontal: 2 }} />
-
               {/* Step 3 */}
               <View style={[styles.topStepBadge, activeCreationStep >= 3 && styles.topStepBadgeActive]}>
                 <Ionicons
@@ -895,7 +854,6 @@ const TeamBuilderView = ({ navigation }) => {
             <Text style={styles.formSubtitle}>
               Specify your project goals and required skills. Our AI will suggest suitable teammates and automatically link a workspace.
             </Text>
-
             <Text style={styles.inputLabel}>Project Name *</Text>
             <TextInput
               style={styles.input}
@@ -904,7 +862,6 @@ const TeamBuilderView = ({ navigation }) => {
               value={title}
               onChangeText={setTitle}
             />
-
             <Text style={styles.inputLabel}>Project Description / Abstract *</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -915,7 +872,6 @@ const TeamBuilderView = ({ navigation }) => {
               multiline
               numberOfLines={3}
             />
-
             <View style={styles.twoCol}>
               <View style={styles.col}>
                 <Text style={styles.inputLabel}>Research / Professional Domain</Text>
@@ -927,7 +883,6 @@ const TeamBuilderView = ({ navigation }) => {
                   onChangeText={setResearchDomain}
                 />
               </View>
-
               <View style={styles.col}>
                 <Text style={styles.inputLabel}>Desired Team Size</Text>
                 <TextInput
@@ -940,7 +895,6 @@ const TeamBuilderView = ({ navigation }) => {
                 />
               </View>
             </View>
-
             <Text style={styles.inputLabel}>Required Skills (comma-separated)</Text>
             <TextInput
               style={styles.input}
@@ -949,7 +903,6 @@ const TeamBuilderView = ({ navigation }) => {
               value={requiredSkills}
               onChangeText={setRequiredSkills}
             />
-
             <View style={styles.twoCol}>
               <View style={styles.col}>
                 <Text style={styles.inputLabel}>Project Goals</Text>
@@ -961,7 +914,6 @@ const TeamBuilderView = ({ navigation }) => {
                   onChangeText={setProjectGoals}
                 />
               </View>
-
               <View style={styles.col}>
                 <Text style={styles.inputLabel}>Timeline / Duration</Text>
                 <TextInput
@@ -1008,7 +960,6 @@ const TeamBuilderView = ({ navigation }) => {
                   Ranked by semantic vector similarity, complementary skills, and proximity. Candidates are not auto-added to the team.
                 </Text>
               </View>
-
               {recommendations.length === 0 ? (
                 <EmptyStateView
                   title="No Matching Collaborators"
@@ -1021,7 +972,6 @@ const TeamBuilderView = ({ navigation }) => {
                     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
                   const isInviting = invitingId === candidate._id;
                   const isInvited = candidate.isInvited;
-
                   return (
                     <View key={candidate._id} style={styles.candidateCard}>
                       <View style={styles.candidateTopRow}>
@@ -1037,11 +987,9 @@ const TeamBuilderView = ({ navigation }) => {
                               </Text>
                             </View>
                           </View>
-
                           <Text style={styles.candidateRole} numberOfLines={1}>
                             {candidate.role || 'Researcher'} • {candidate.organization || 'GeoConnect'}
                           </Text>
-
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3 }}>
                             <Ionicons name="location-outline" size={13} color={COLORS.textMuted} style={{ marginRight: 3 }} />
                             <Text style={styles.candidateDist}>{candidate.approximateDistance}</Text>
@@ -1079,7 +1027,6 @@ const TeamBuilderView = ({ navigation }) => {
                         >
                           <Text style={styles.btnOutlineText}>View Profile</Text>
                         </TouchableOpacity>
-
                         {isInvited ? (
                           <View style={styles.btnInvited}>
                             <Ionicons name="time-outline" size={13} color={COLORS.primaryDark} style={{ marginRight: 4 }} />
@@ -1133,7 +1080,6 @@ const TeamBuilderView = ({ navigation }) => {
                 Team Requests ({incomingRequests.length})
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.subPill, requestsSubTab === 'sent' && styles.subPillActive]}
               onPress={() => setRequestsSubTab('sent')}
@@ -1145,7 +1091,7 @@ const TeamBuilderView = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Incoming Team Requests (Owner reviews requests) */}
+          {/* Incoming Team Requests */}
           {requestsSubTab === 'incoming' ? (
             incomingRequests.length === 0 ? (
               <EmptyStateView
@@ -1156,7 +1102,6 @@ const TeamBuilderView = ({ navigation }) => {
               incomingRequests.map((req) => {
                 const u = req.user;
                 const isResponding = respondingRequestId === req._id;
-
                 return (
                   <View key={req._id} style={styles.requestCard}>
                     <View style={styles.requestHeader}>
@@ -1167,7 +1112,6 @@ const TeamBuilderView = ({ navigation }) => {
                         <Text style={styles.pendingPillText}>Pending</Text>
                       </View>
                     </View>
-
                     <View style={styles.requesterProfileRow}>
                       <Image
                         source={{
@@ -1185,14 +1129,11 @@ const TeamBuilderView = ({ navigation }) => {
                         <Text style={styles.reqRoleBadge}>Desired Role: {req.role || 'Contributor'}</Text>
                       </View>
                     </View>
-
                     {req.message ? (
                       <View style={styles.reqMessageBox}>
                         <Text style={styles.reqMessageText}>"{req.message}"</Text>
                       </View>
                     ) : null}
-
-                    {/* Accept / Reject Buttons */}
                     <View style={styles.reqButtonsRow}>
                       <TouchableOpacity
                         style={styles.btnReject}
@@ -1203,7 +1144,6 @@ const TeamBuilderView = ({ navigation }) => {
                         <Ionicons name="close" size={15} color={COLORS.danger} style={{ marginRight: 4 }} />
                         <Text style={styles.btnRejectText}>Reject</Text>
                       </TouchableOpacity>
-
                       <TouchableOpacity
                         style={styles.btnAccept}
                         onPress={() => handleRespondJoinRequest(req.projectId, req._id, 'accept')}
@@ -1236,7 +1176,6 @@ const TeamBuilderView = ({ navigation }) => {
                 const isPending = req.status === 'pending';
                 const isAccepted = req.status === 'accepted';
                 const isRejected = req.status === 'rejected';
-
                 return (
                   <View key={req._id} style={styles.requestCard}>
                     <View style={styles.requestHeader}>
@@ -1256,11 +1195,9 @@ const TeamBuilderView = ({ navigation }) => {
                         <Text style={styles.statusBadgeTextGeneral}>{req.status.toUpperCase()}</Text>
                       </View>
                     </View>
-
                     <Text style={styles.sentProjectDesc} numberOfLines={2}>
                       {req.project?.description}
                     </Text>
-
                     <View style={styles.sentMetaRow}>
                       <Text style={styles.sentMetaText}>
                         Owner: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{req.project?.owner?.name || 'Project Lead'}</Text>
@@ -1269,7 +1206,6 @@ const TeamBuilderView = ({ navigation }) => {
                         Role: <Text style={{ fontWeight: '600', color: COLORS.textMain }}>{req.role}</Text>
                       </Text>
                     </View>
-
                     {isPending && (
                       <View style={styles.sentActionRow}>
                         <TouchableOpacity
@@ -1312,7 +1248,6 @@ const TeamBuilderView = ({ navigation }) => {
               const isResponding = respondingId === inv.projectId;
               const isAccepted = inv.invitationStatus === 'accepted';
               const isDeclined = inv.invitationStatus === 'declined';
-
               return (
                 <View key={inv.projectId} style={styles.inviteCard}>
                   <View style={styles.inviteHeader}>
@@ -1337,16 +1272,13 @@ const TeamBuilderView = ({ navigation }) => {
                       </Text>
                     </View>
                   </View>
-
                   <Text style={styles.inviteDesc} numberOfLines={3}>
                     {inv.projectDescription}
                   </Text>
-
                   <View style={styles.roleOfferBox}>
                     <Text style={styles.roleOfferLabel}>Invited Role: </Text>
                     <Text style={styles.roleOfferValue}>{inv.myRole}</Text>
                   </View>
-
                   {!isAccepted && !isDeclined ? (
                     <View style={styles.inviteActionRow}>
                       <TouchableOpacity
@@ -1364,7 +1296,6 @@ const TeamBuilderView = ({ navigation }) => {
                           </View>
                         )}
                       </TouchableOpacity>
-
                       <TouchableOpacity
                         style={styles.btnDecline}
                         onPress={() => handleRespondInvitation(inv.projectId, 'decline')}
@@ -1407,7 +1338,6 @@ const TeamBuilderView = ({ navigation }) => {
       >
         {selectedProject ? (
           <View style={styles.modalContainer}>
-            {/* Modal Header */}
             <View style={styles.modalHeader}>
               <TouchableOpacity
                 onPress={() => setSelectedProject(null)}
@@ -1423,7 +1353,6 @@ const TeamBuilderView = ({ navigation }) => {
             </View>
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
-              {/* Status & Lifecycle Stepper */}
               <View style={styles.lifecycleCard}>
                 <View style={styles.lifecycleHeaderRow}>
                   <Text style={styles.lifecycleTitle}>Project Lifecycle</Text>
@@ -1447,7 +1376,6 @@ const TeamBuilderView = ({ navigation }) => {
                   </View>
                 </View>
 
-                {/* Stepper Progress */}
                 <View style={styles.stepperRow}>
                   <View style={styles.stepperItem}>
                     <View style={[styles.stepCircle, styles.stepCircleDone]}>
@@ -1455,18 +1383,14 @@ const TeamBuilderView = ({ navigation }) => {
                     </View>
                     <Text style={styles.stepLabel}>Project</Text>
                   </View>
-
                   <View style={styles.stepLine} />
-
                   <View style={styles.stepperItem}>
                     <View style={[styles.stepCircle, styles.stepCircleDone]}>
                       <Ionicons name="checkmark" size={12} color="#ffffff" />
                     </View>
                     <Text style={styles.stepLabel}>AI Match</Text>
                   </View>
-
                   <View style={styles.stepLine} />
-
                   <View style={styles.stepperItem}>
                     <View
                       style={[
@@ -1482,9 +1406,7 @@ const TeamBuilderView = ({ navigation }) => {
                     </View>
                     <Text style={styles.stepLabel}>Accepted</Text>
                   </View>
-
                   <View style={styles.stepLine} />
-
                   <View style={styles.stepperItem}>
                     <View
                       style={[
@@ -1500,9 +1422,7 @@ const TeamBuilderView = ({ navigation }) => {
                     </View>
                     <Text style={styles.stepLabel}>Workspace</Text>
                   </View>
-
                   <View style={styles.stepLine} />
-
                   <View style={styles.stepperItem}>
                     <View
                       style={[
@@ -1521,7 +1441,6 @@ const TeamBuilderView = ({ navigation }) => {
                 </View>
               </View>
 
-              {/* Direct Link to Workspace */}
               {selectedProject.workspace && (
                 <TouchableOpacity
                   style={styles.btnLaunchWorkspace}
@@ -1539,7 +1458,6 @@ const TeamBuilderView = ({ navigation }) => {
                 </TouchableOpacity>
               )}
 
-              {/* Celebration Banner if Completed */}
               {selectedProject.status === 'Completed' && (
                 <View style={styles.celebrationBanner}>
                   <Ionicons name="trophy" size={28} color="#D97706" style={{ marginRight: 10 }} />
@@ -1552,18 +1470,15 @@ const TeamBuilderView = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Description Card */}
               <View style={styles.modalSectionCard}>
                 <Text style={styles.sectionHeader}>Overview & Objectives</Text>
                 <Text style={styles.sectionBodyText}>{selectedProject.description}</Text>
-
                 {Boolean(selectedProject.projectGoals) && (
                   <View style={{ marginTop: 8 }}>
                     <Text style={styles.inputLabel}>Goals:</Text>
                     <Text style={styles.sectionBodyText}>{selectedProject.projectGoals}</Text>
                   </View>
                 )}
-
                 {Array.isArray(selectedProject.requiredSkills) && selectedProject.requiredSkills.length > 0 && (
                   <View style={styles.skillsRowModal}>
                     {selectedProject.requiredSkills.map((s, idx) => (
@@ -1575,7 +1490,6 @@ const TeamBuilderView = ({ navigation }) => {
                 )}
               </View>
 
-              {/* Confirmed Team */}
               <View style={styles.modalSectionCard}>
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionHeader}>Confirmed Team</Text>
@@ -1584,7 +1498,6 @@ const TeamBuilderView = ({ navigation }) => {
                   </Text>
                 </View>
 
-                {/* Owner / Lead Member */}
                 <View style={styles.memberRow}>
                   <Image
                     source={{
@@ -1605,7 +1518,6 @@ const TeamBuilderView = ({ navigation }) => {
                   </View>
                 </View>
 
-                {/* Accepted Collaborators */}
                 {selectedProject.finalTeam?.map((m, idx) => (
                   <View key={m.user?._id || idx} style={styles.memberRow}>
                     <Image
@@ -1643,7 +1555,6 @@ const TeamBuilderView = ({ navigation }) => {
                 )}
               </View>
 
-              {/* Workspace Tasks */}
               {selectedProject.workspace && (
                 <View style={styles.modalSectionCard}>
                   <View style={styles.sectionHeaderRow}>
@@ -1657,19 +1568,16 @@ const TeamBuilderView = ({ navigation }) => {
                       <Text style={styles.btnAddTaskSmallText}>Add Task</Text>
                     </TouchableOpacity>
                   </View>
-
                   <Text style={styles.workspaceNote}>
                     Tap any task's status chip to transition: To Do → In Progress → Completed
                   </Text>
 
-                  {/* Task List */}
                   {selectedProject.workspace?.tasks?.length === 0 ? (
                     <Text style={styles.emptyTasksText}>No tasks yet. Tap 'Add Task' to assign deliverables.</Text>
                   ) : (
                     selectedProject.workspace?.tasks?.map((task) => {
                       const isDone = task.status === 'Completed';
                       const isInProgress = task.status === 'In Progress';
-
                       return (
                         <View key={task._id} style={[styles.taskItemCard, isDone && styles.taskItemDone]}>
                           <View style={styles.taskItemLeft}>
@@ -1689,7 +1597,6 @@ const TeamBuilderView = ({ navigation }) => {
                             </View>
                           </View>
 
-                          {/* Status toggle chip */}
                           <TouchableOpacity
                             style={[
                               styles.taskStatusChip,
@@ -1734,7 +1641,6 @@ const TeamBuilderView = ({ navigation }) => {
                     })
                   )}
 
-                  {/* Complete Project */}
                   {selectedProject.status !== 'Completed' && (
                     <TouchableOpacity
                       style={styles.btnCompleteProject}
@@ -1768,7 +1674,6 @@ const TeamBuilderView = ({ navigation }) => {
         >
           <View style={styles.taskModalContent} onStartShouldSetResponder={() => true}>
             <Text style={styles.taskModalHeader}>Add Workspace Task</Text>
-
             <Text style={styles.inputLabel}>Task Title *</Text>
             <TextInput
               style={styles.input}
@@ -1777,7 +1682,6 @@ const TeamBuilderView = ({ navigation }) => {
               value={newTaskTitle}
               onChangeText={setNewTaskTitle}
             />
-
             <Text style={styles.inputLabel}>Description (Optional)</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -1787,7 +1691,6 @@ const TeamBuilderView = ({ navigation }) => {
               onChangeText={setNewTaskDesc}
               multiline
             />
-
             <Text style={styles.inputLabel}>Priority</Text>
             <View style={styles.priorityRow}>
               {['Low', 'Medium', 'High'].map((p) => (
@@ -1810,7 +1713,6 @@ const TeamBuilderView = ({ navigation }) => {
                 </TouchableOpacity>
               ))}
             </View>
-
             <View style={styles.taskModalBtnRow}>
               <TouchableOpacity
                 style={styles.btnTaskCancel}
@@ -1818,7 +1720,6 @@ const TeamBuilderView = ({ navigation }) => {
               >
                 <Text style={styles.btnTaskCancelText}>Cancel</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.btnTaskSubmit}
                 onPress={handleAddTask}
@@ -1876,35 +1777,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 8,
-    paddingVertical: 8
+    borderBottomColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8
   },
   subTabBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginHorizontal: 2
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 18,
+    backgroundColor: 'transparent'
   },
   subTabBtnActive: {
-    backgroundColor: COLORS.primaryLight
+    backgroundColor: COLORS.primaryLight || '#E8F5E9'
   },
   subTabBtnText: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontWeight: '600'
+    fontSize: 13,
+    color: COLORS.textMuted || '#6B7280',
+    fontWeight: '500'
   },
   subTabBtnTextActive: {
-    color: COLORS.primary,
+    color: COLORS.primary || '#15803D',
     fontWeight: '700'
   },
   tabBadge: {
-    backgroundColor: COLORS.warning,
+    backgroundColor: COLORS.warning || '#F59E0B',
     borderRadius: 10,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 1,
     marginLeft: 4
   },

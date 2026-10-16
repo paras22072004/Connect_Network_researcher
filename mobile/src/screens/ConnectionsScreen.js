@@ -348,7 +348,7 @@ const ConnectionsScreen = ({ navigation }) => {
             activeOpacity={0.8}
           >
             <Text style={[styles.tabBtnText, activeTab === 'accepted' && styles.tabBtnTextActive]}>
-              Accepted ({connections.length})
+              My Connections
             </Text>
           </TouchableOpacity>
 
