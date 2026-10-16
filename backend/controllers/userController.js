@@ -33,6 +33,7 @@ const updateUserProfile = async (req, res) => {
 
     const {
       name,
+      avatarId,
       profileImage,
       role,
       organization,
@@ -40,6 +41,7 @@ const updateUserProfile = async (req, res) => {
       skills,
       expertise,
       researchInterests,
+      researchTopics,
       researchDomains,
       projects,
       publications,
@@ -56,6 +58,7 @@ const updateUserProfile = async (req, res) => {
     };
 
     if (name !== undefined) user.name = name;
+    if (avatarId !== undefined) user.avatarId = avatarId;
     if (profileImage !== undefined) user.profileImage = profileImage;
     if (role !== undefined) user.role = role;
     if (organization !== undefined) user.organization = organization;
@@ -63,10 +66,83 @@ const updateUserProfile = async (req, res) => {
 
     if (skills !== undefined) user.skills = parseArray(skills);
     if (expertise !== undefined) user.expertise = parseArray(expertise);
-    if (researchInterests !== undefined) user.researchInterests = parseArray(researchInterests);
     if (researchDomains !== undefined) user.researchDomains = parseArray(researchDomains);
 
-    if (projects !== undefined) user.projects = projects;
+    // Handle researchTopics and researchInterests
+    if (researchTopics !== undefined) {
+      if (Array.isArray(researchTopics)) {
+        const seenTitles = new Set();
+        const cleanTopics = [];
+        for (const t of researchTopics) {
+          if (!t || !t.title || !t.title.trim()) {
+            return res.status(400).json({ success: false, message: 'Research topic title is required.' });
+          }
+          const titleLower = t.title.trim().toLowerCase();
+          if (seenTitles.has(titleLower)) {
+            return res.status(400).json({ success: false, message: `Duplicate research topic: "${t.title.trim()}"` });
+          }
+          seenTitles.add(titleLower);
+          cleanTopics.push({
+            _id: t._id,
+            title: t.title.trim(),
+            domain: (t.domain || '').trim(),
+            description: (t.description || '').trim(),
+            skills: Array.isArray(t.skills) ? t.skills.map(s => String(s).trim()).filter(Boolean) : (typeof t.skills === 'string' ? t.skills.split(',').map(s => s.trim()).filter(Boolean) : [])
+          });
+        }
+        user.researchTopics = cleanTopics;
+        user.researchInterests = cleanTopics.map(t => t.title);
+      }
+    } else if (researchInterests !== undefined) {
+      const parsed = parseArray(researchInterests);
+      user.researchInterests = parsed;
+      // If user had no researchTopics, populate basic entries
+      if (!Array.isArray(user.researchTopics) || user.researchTopics.length === 0) {
+        user.researchTopics = parsed.map(title => ({
+          title,
+          domain: '',
+          description: '',
+          skills: []
+        }));
+      }
+    }
+
+    // Handle projects with validation and URL check
+    if (projects !== undefined) {
+      if (Array.isArray(projects)) {
+        const seenTitles = new Set();
+        const cleanProjects = [];
+        const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s]*)?$/;
+
+        for (const p of projects) {
+          if (!p || !p.title || !p.title.trim()) {
+            return res.status(400).json({ success: false, message: 'Project title is required.' });
+          }
+          const titleLower = p.title.trim().toLowerCase();
+          if (seenTitles.has(titleLower)) {
+            return res.status(400).json({ success: false, message: `Duplicate project: "${p.title.trim()}"` });
+          }
+          seenTitles.add(titleLower);
+
+          let link = (p.link || '').trim();
+          if (link && !urlPattern.test(link)) {
+            return res.status(400).json({ success: false, message: `Invalid project URL for "${p.title.trim()}". Please provide a valid link (e.g. https://github.com/...)` });
+          }
+
+          cleanProjects.push({
+            _id: p._id,
+            title: p.title.trim(),
+            description: (p.description || '').trim(),
+            domain: (p.domain || '').trim(),
+            techStack: Array.isArray(p.techStack) ? p.techStack.map(s => String(s).trim()).filter(Boolean) : (typeof p.techStack === 'string' ? p.techStack.split(',').map(s => s.trim()).filter(Boolean) : []),
+            status: p.status || 'In Progress',
+            link
+          });
+        }
+        user.projects = cleanProjects;
+      }
+    }
+
     if (publications !== undefined) user.publications = publications;
     if (collaboration !== undefined) user.collaboration = collaboration;
 
@@ -192,9 +268,263 @@ const searchPublications = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Add a project to user profile
+ * @route   POST /api/users/projects
+ * @access  Private
+ */
+const addProject = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { title, description, domain, techStack, status, link } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, message: 'Project title is required.' });
+    }
+
+    const titleTrimmed = title.trim();
+    if (user.projects.some(p => p.title.toLowerCase() === titleTrimmed.toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'A project with this title already exists.' });
+    }
+
+    const trimmedLink = (link || '').trim();
+    const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s]*)?$/;
+    if (trimmedLink && !urlPattern.test(trimmedLink)) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid project URL (e.g. https://github.com/...)' });
+    }
+
+    const newProject = {
+      title: titleTrimmed,
+      description: (description || '').trim(),
+      domain: (domain || '').trim(),
+      techStack: Array.isArray(techStack) ? techStack.map(s => String(s).trim()).filter(Boolean) : (typeof techStack === 'string' ? techStack.split(',').map(s => s.trim()).filter(Boolean) : []),
+      status: status || 'In Progress',
+      link: trimmedLink
+    };
+
+    user.projects.push(newProject);
+    await user.save();
+
+    updateUserEmbedding(user).catch(err => console.error('[AddProject Embedding]', err.message));
+
+    return res.status(201).json({
+      success: true,
+      message: 'Project added successfully',
+      projects: user.projects,
+      project: user.projects[user.projects.length - 1]
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Update a project on user profile
+ * @route   PUT /api/users/projects/:id
+ * @access  Private
+ */
+const updateProject = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const project = user.projects.id(req.params.id);
+    if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
+
+    const { title, description, domain, techStack, status, link } = req.body;
+    if (title !== undefined) {
+      if (!title.trim()) {
+        return res.status(400).json({ success: false, message: 'Project title cannot be empty.' });
+      }
+      const titleTrimmed = title.trim();
+      const duplicate = user.projects.some(p => p._id.toString() !== req.params.id && p.title.toLowerCase() === titleTrimmed.toLowerCase());
+      if (duplicate) {
+        return res.status(400).json({ success: false, message: 'A project with this title already exists.' });
+      }
+      project.title = titleTrimmed;
+    }
+
+    if (description !== undefined) project.description = description.trim();
+    if (domain !== undefined) project.domain = domain.trim();
+    if (techStack !== undefined) {
+      project.techStack = Array.isArray(techStack) ? techStack.map(s => String(s).trim()).filter(Boolean) : (typeof techStack === 'string' ? techStack.split(',').map(s => s.trim()).filter(Boolean) : []);
+    }
+    if (status !== undefined) project.status = status;
+    if (link !== undefined) {
+      const trimmedLink = link.trim();
+      const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s]*)?$/;
+      if (trimmedLink && !urlPattern.test(trimmedLink)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid project URL (e.g. https://github.com/...)' });
+      }
+      project.link = trimmedLink;
+    }
+
+    await user.save();
+    updateUserEmbedding(user).catch(err => console.error('[UpdateProject Embedding]', err.message));
+
+    return res.json({
+      success: true,
+      message: 'Project updated successfully',
+      projects: user.projects,
+      project
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete a project from user profile
+ * @route   DELETE /api/users/projects/:id
+ * @access  Private
+ */
+const deleteProject = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    user.projects = user.projects.filter(p => p._id.toString() !== req.params.id);
+    await user.save();
+    updateUserEmbedding(user).catch(err => console.error('[DeleteProject Embedding]', err.message));
+
+    return res.json({
+      success: true,
+      message: 'Project removed successfully',
+      projects: user.projects
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Add a research topic to user profile
+ * @route   POST /api/users/research
+ * @access  Private
+ */
+const addResearchTopic = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { title, domain, description, skills } = req.body;
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, message: 'Research topic title is required.' });
+    }
+
+    const titleTrimmed = title.trim();
+    if (user.researchTopics.some(t => t.title.toLowerCase() === titleTrimmed.toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'A research topic with this title already exists.' });
+    }
+
+    const newTopic = {
+      title: titleTrimmed,
+      domain: (domain || '').trim(),
+      description: (description || '').trim(),
+      skills: Array.isArray(skills) ? skills.map(s => String(s).trim()).filter(Boolean) : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : [])
+    };
+
+    user.researchTopics.push(newTopic);
+    user.researchInterests = user.researchTopics.map(t => t.title);
+
+    await user.save();
+    updateUserEmbedding(user).catch(err => console.error('[AddResearch Embedding]', err.message));
+
+    return res.status(201).json({
+      success: true,
+      message: 'Research topic added successfully',
+      researchTopics: user.researchTopics,
+      researchTopic: user.researchTopics[user.researchTopics.length - 1]
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Update a research topic on user profile
+ * @route   PUT /api/users/research/:id
+ * @access  Private
+ */
+const updateResearchTopic = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const topic = user.researchTopics.id(req.params.id);
+    if (!topic) return res.status(404).json({ success: false, message: 'Research topic not found' });
+
+    const { title, domain, description, skills } = req.body;
+    if (title !== undefined) {
+      if (!title.trim()) {
+        return res.status(400).json({ success: false, message: 'Research topic title cannot be empty.' });
+      }
+      const titleTrimmed = title.trim();
+      const duplicate = user.researchTopics.some(t => t._id.toString() !== req.params.id && t.title.toLowerCase() === titleTrimmed.toLowerCase());
+      if (duplicate) {
+        return res.status(400).json({ success: false, message: 'A research topic with this title already exists.' });
+      }
+      topic.title = titleTrimmed;
+    }
+
+    if (domain !== undefined) topic.domain = domain.trim();
+    if (description !== undefined) topic.description = description.trim();
+    if (skills !== undefined) {
+      topic.skills = Array.isArray(skills) ? skills.map(s => String(s).trim()).filter(Boolean) : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : []);
+    }
+
+    user.researchInterests = user.researchTopics.map(t => t.title);
+
+    await user.save();
+    updateUserEmbedding(user).catch(err => console.error('[UpdateResearch Embedding]', err.message));
+
+    return res.json({
+      success: true,
+      message: 'Research topic updated successfully',
+      researchTopics: user.researchTopics,
+      researchTopic: topic
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Delete a research topic from user profile
+ * @route   DELETE /api/users/research/:id
+ * @access  Private
+ */
+const deleteResearchTopic = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    user.researchTopics = user.researchTopics.filter(t => t._id.toString() !== req.params.id);
+    user.researchInterests = user.researchTopics.map(t => t.title);
+
+    await user.save();
+    updateUserEmbedding(user).catch(err => console.error('[DeleteResearch Embedding]', err.message));
+
+    return res.json({
+      success: true,
+      message: 'Research topic removed successfully',
+      researchTopics: user.researchTopics
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getUserProfile,
   updateUserProfile,
   getUserById,
-  searchPublications
+  searchPublications,
+  addProject,
+  updateProject,
+  deleteProject,
+  addResearchTopic,
+  updateResearchTopic,
+  deleteResearchTopic
 };

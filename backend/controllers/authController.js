@@ -15,18 +15,29 @@ const registerUser = async (req, res) => {
       password,
       role,
       organization,
+      avatarId,
+      profileImage,
       bio,
       skills,
       expertise,
       researchInterests,
-      researchDomains
+      researchTopics,
+      researchDomains,
+      projects
     } = req.body;
 
-    // Validate required input fields
-    if (!name || !email || !password || !role || !organization) {
+    // Validate essential required account fields
+    if (!name || !name.trim() || !email || !email.trim() || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please fill in all required fields (name, email, password, role, organization)'
+        message: 'Please fill in all required fields (name, email, password)'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
       });
     }
 
@@ -44,23 +55,70 @@ const registerUser = async (req, res) => {
     // Helper to format string arrays (comma-separated strings or arrays)
     const parseArrayField = (field) => {
       if (!field) return [];
-      if (Array.isArray(field)) return field.map(s => s.trim());
+      if (Array.isArray(field)) return field.map(s => String(s).trim()).filter(Boolean);
       if (typeof field === 'string') return field.split(',').map(s => s.trim()).filter(Boolean);
       return [];
     };
+
+    const finalRole = (role && role.trim()) ? role.trim() : 'Researcher';
+    const finalOrg = (organization && organization.trim()) ? organization.trim() : 'Independent Researcher';
+    const finalAvatarId = avatarId || 'avatar-1';
+    const finalProfileImage = profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
+
+    let finalResearchTopics = [];
+    if (Array.isArray(researchTopics)) {
+      finalResearchTopics = researchTopics
+        .filter(t => t && t.title && t.title.trim())
+        .map(t => ({
+          title: t.title.trim(),
+          domain: (t.domain || '').trim(),
+          description: (t.description || '').trim(),
+          skills: Array.isArray(t.skills) ? t.skills.map(s => String(s).trim()).filter(Boolean) : []
+        }));
+    }
+
+    let finalInterests = parseArrayField(researchInterests);
+    if (finalResearchTopics.length > 0 && finalInterests.length === 0) {
+      finalInterests = finalResearchTopics.map(t => t.title);
+    } else if (finalInterests.length > 0 && finalResearchTopics.length === 0) {
+      finalResearchTopics = finalInterests.map(title => ({
+        title,
+        domain: '',
+        description: '',
+        skills: []
+      }));
+    }
+
+    let finalProjects = [];
+    if (Array.isArray(projects)) {
+      finalProjects = projects
+        .filter(p => p && p.title && p.title.trim())
+        .map(p => ({
+          title: p.title.trim(),
+          description: (p.description || '').trim(),
+          domain: (p.domain || '').trim(),
+          techStack: Array.isArray(p.techStack) ? p.techStack.map(s => String(s).trim()).filter(Boolean) : [],
+          status: p.status || 'In Progress',
+          link: (p.link || '').trim()
+        }));
+    }
 
     // Create new user in database
     const user = await User.create({
       name: (name || '').trim(),
       email: normalizedEmail,
       password,
-      role,
-      organization,
+      avatarId: finalAvatarId,
+      profileImage: finalProfileImage,
+      role: finalRole,
+      organization: finalOrg,
       bio: bio || 'Passionate about research, innovation, and professional networking.',
       skills: parseArrayField(skills),
       expertise: parseArrayField(expertise),
-      researchInterests: parseArrayField(researchInterests),
+      researchInterests: finalInterests,
+      researchTopics: finalResearchTopics,
       researchDomains: parseArrayField(researchDomains),
+      projects: finalProjects,
       // Default placeholder location (0, 0) until updated via Geolocation API
       location: {
         type: 'Point',
@@ -88,10 +146,12 @@ const registerUser = async (req, res) => {
           role: user.role,
           organization: user.organization,
           bio: user.bio,
+          avatarId: user.avatarId,
           profileImage: user.profileImage,
           skills: user.skills,
           expertise: user.expertise,
           researchInterests: user.researchInterests,
+          researchTopics: user.researchTopics,
           researchDomains: user.researchDomains,
           discoverable: user.discoverable,
           preferredRadius: user.preferredRadius,
@@ -143,10 +203,12 @@ const loginUser = async (req, res) => {
           role: user.role,
           organization: user.organization,
           bio: user.bio,
+          avatarId: user.avatarId,
           profileImage: user.profileImage,
           skills: user.skills,
           expertise: user.expertise,
           researchInterests: user.researchInterests,
+          researchTopics: user.researchTopics,
           researchDomains: user.researchDomains,
           discoverable: user.discoverable,
           preferredRadius: user.preferredRadius,

@@ -16,13 +16,30 @@ const publicationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 /**
+ * Research Topic / Interest Sub-schema for showcasing structured research focus areas.
+ */
+const researchSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  domain: { type: String, trim: true, default: '' },
+  description: { type: String, trim: true, default: '' },
+  skills: [{ type: String, trim: true }]
+}, { timestamps: true });
+
+/**
  * Project Sub-schema for showcasing professional/academic projects.
  */
 const projectSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
-  description: { type: String, trim: true },
+  description: { type: String, trim: true, default: '' },
+  domain: { type: String, trim: true, default: '' },
   techStack: [{ type: String, trim: true }],
-  link: { type: String, trim: true }
+  status: {
+    type: String,
+    enum: ['In Progress', 'Completed', 'Planning', 'Archived', 'Active'],
+    default: 'In Progress',
+    trim: true
+  },
+  link: { type: String, trim: true, default: '' }
 }, { timestamps: true });
 
 /**
@@ -49,18 +66,23 @@ const userSchema = new mongoose.Schema({
     minlength: 6,
     select: false // Exclude password hash by default from queries for security
   },
+  avatarId: {
+    type: String,
+    default: 'avatar-1',
+    trim: true
+  },
   profileImage: {
     type: String,
     default: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300'
   },
   role: {
     type: String,
-    required: [true, 'Professional role is required'],
+    default: 'Researcher',
     trim: true
   },
   organization: {
     type: String,
-    required: [true, 'University or Organization is required'],
+    default: 'Independent Researcher',
     trim: true
   },
   bio: {
@@ -80,6 +102,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  researchTopics: [researchSchema],
   researchDomains: [{
     type: String,
     trim: true

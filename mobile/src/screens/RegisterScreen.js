@@ -14,6 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { COLORS, SHADOWS } from '../theme/theme';
+import AvatarPicker from '../components/AvatarPicker';
+import { DEFAULT_AVATAR_ID, AVATAR_OPTIONS } from '../constants/avatars';
 
 const ROLE_OPTIONS = [
   'Student',
@@ -30,6 +32,10 @@ const ROLE_OPTIONS = [
 
 const RegisterScreen = ({ navigation }) => {
   const { register } = useAuth();
+
+  // Avatar state
+  const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID);
+  const [profileImage, setProfileImage] = useState(AVATAR_OPTIONS[0].uri);
 
   // Form states
   const [name, setName] = useState('');
@@ -49,7 +55,7 @@ const RegisterScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Validate form fields
+  // Validate only essential account creation fields (name, email, password >= 6)
   const validate = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -68,16 +74,6 @@ const RegisterScreen = ({ navigation }) => {
       newErrors.password = 'Password is required';
     } else if (password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    if (!selectedRole) {
-      newErrors.role = 'Please select your professional role';
-    } else if (selectedRole === 'Other' && !customRole.trim()) {
-      newErrors.customRole = 'Please specify your custom professional role';
-    }
-
-    if (!organization.trim()) {
-      newErrors.organization = 'University or organization is required';
     }
 
     setErrors(newErrors);
@@ -102,16 +98,23 @@ const RegisterScreen = ({ navigation }) => {
     setErrors((prev) => ({ ...prev, form: '' }));
     setSuccessMsg('');
 
-    // Determine role: if "Other", submit the trimmed customRole, never the literal string "Other"
-    const finalRole = selectedRole === 'Other' ? customRole.trim() : selectedRole;
+    // Determine role: optional, fallback to Researcher if not specified
+    const finalRole = selectedRole === 'Other'
+      ? (customRole.trim() || 'Researcher')
+      : (selectedRole.trim() || 'Researcher');
+
+    // Organization is optional, fallback to Independent Researcher if not specified
+    const finalOrg = organization.trim() || 'Independent Researcher';
 
     try {
       const userData = {
         name: name.trim(),
         email: email.trim(),
         password,
+        avatarId,
+        profileImage,
         role: finalRole,
-        organization: organization.trim(),
+        organization: finalOrg,
         skills: skills ? skills.split(',').map((s) => s.trim()).filter(Boolean) : [],
         researchInterests: researchInterests ? researchInterests.split(',').map((i) => i.trim()).filter(Boolean) : []
       };
@@ -193,6 +196,15 @@ const RegisterScreen = ({ navigation }) => {
               <Text style={styles.formSuccessText}>{successMsg}</Text>
             </View>
           ) : null}
+
+          {/* Profile Avatar Selection (3 Presets) */}
+          <AvatarPicker
+            selectedAvatarId={avatarId}
+            onSelectAvatar={(id, uri) => {
+              setAvatarId(id);
+              setProfileImage(uri);
+            }}
+          />
 
           {/* 1. Full Name */}
           <View style={styles.inputGroup}>
@@ -327,9 +339,12 @@ const RegisterScreen = ({ navigation }) => {
             ) : null}
           </View>
 
-          {/* 4. Professional Role Dropdown */}
+          {/* 4. Professional Role Dropdown (Optional) */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Professional Role *</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Professional Role</Text>
+              <Text style={styles.optionalBadge}>Optional</Text>
+            </View>
             <TouchableOpacity
               style={[
                 styles.inputWrapper,
@@ -375,7 +390,10 @@ const RegisterScreen = ({ navigation }) => {
           {/* Conditional Custom Role Input (if "Other" is chosen) */}
           {selectedRole === 'Other' && (
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Enter Your Professional Role *</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>Custom Professional Role</Text>
+                <Text style={styles.optionalBadge}>Optional</Text>
+              </View>
               <View
                 style={[
                   styles.inputWrapper,
@@ -417,9 +435,12 @@ const RegisterScreen = ({ navigation }) => {
             </View>
           )}
 
-          {/* 5. University / Organization */}
+          {/* 5. University / Organization (Optional) */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>University / Organization *</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>University / Organization</Text>
+              <Text style={styles.optionalBadge}>Optional</Text>
+            </View>
             <View
               style={[
                 styles.inputWrapper,

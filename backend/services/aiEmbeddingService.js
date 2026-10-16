@@ -71,6 +71,23 @@ const generateProfileText = (user) => {
     parts.push(`Research Interests: ${user.researchInterests.join(', ')}.`);
   }
 
+  if (Array.isArray(user.researchTopics) && user.researchTopics.length > 0) {
+    const topicSummaries = user.researchTopics
+      .map(t => {
+        let tStr = t.title || '';
+        if (t.domain) tStr += ` (${t.domain})`;
+        if (t.description) tStr += ` - ${t.description}`;
+        if (Array.isArray(t.skills) && t.skills.length > 0) {
+          tStr += ` [Skills: ${t.skills.join(', ')}]`;
+        }
+        return tStr;
+      })
+      .filter(Boolean);
+    if (topicSummaries.length > 0) {
+      parts.push(`Research Topics & Focus: ${topicSummaries.join('; ')}.`);
+    }
+  }
+
   if (Array.isArray(user.researchDomains) && user.researchDomains.length > 0) {
     parts.push(`Research Domains: ${user.researchDomains.join(', ')}.`);
   }

@@ -14,10 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { updateUserProfile } from '../services/userService';
 import { COLORS, SHADOWS } from '../theme/theme';
+import AvatarPicker from '../components/AvatarPicker';
+import { DEFAULT_AVATAR_ID } from '../constants/avatars';
 
 const EditProfileScreen = ({ navigation }) => {
   const { user, updateUser } = useAuth();
 
+  const [avatarId, setAvatarId] = useState(user?.avatarId || DEFAULT_AVATAR_ID);
   const [name, setName] = useState(user?.name || '');
   const [profileImage, setProfileImage] = useState(user?.profileImage || '');
   const [role, setRole] = useState(user?.role || '');
@@ -112,6 +115,7 @@ const EditProfileScreen = ({ navigation }) => {
     try {
       const payload = {
         name,
+        avatarId,
         profileImage,
         role,
         organization,
@@ -144,6 +148,17 @@ const EditProfileScreen = ({ navigation }) => {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <Text style={styles.headerTitle}>Edit Professional Profile</Text>
+
+        {/* Built-in Scholar Avatar Selection */}
+        <AvatarPicker
+          selectedAvatarId={avatarId}
+          onSelectAvatar={(id, uri) => {
+            setAvatarId(id);
+            setProfileImage(uri);
+          }}
+          title="Profile Avatar"
+          subtitle="Select from curated academic scholar personas"
+        />
 
         <View style={styles.formGroup}>
           <Text style={styles.label}>Full Name *</Text>
@@ -300,7 +315,7 @@ const EditProfileScreen = ({ navigation }) => {
           {loading ? (
             <ActivityIndicator color={COLORS.textWhite} />
           ) : (
-            <Text style={styles.saveBtnText}>Save Profile & Update AI Vector</Text>
+            <Text style={styles.saveBtnText}>Save Profile & Update </Text>
           )}
         </TouchableOpacity>
       </View>

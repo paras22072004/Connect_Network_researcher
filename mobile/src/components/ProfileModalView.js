@@ -1,13 +1,63 @@
-import React from 'react';
-import { View, Text, Image, ScrollView, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, ScrollView, StyleSheet, Modal, TouchableOpacity, Linking, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ConnectionButton from './ConnectionButton';
 import { COLORS } from '../theme/theme';
+import { getAvatarUri } from '../constants/avatars';
 
 const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
+  const [expandedTopics, setExpandedTopics] = useState({});
+  const [expandedProjects, setExpandedProjects] = useState({});
+
   if (!user) return null;
 
-  const profileImage = user.profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300';
+  const profileImage = getAvatarUri(user.profileImage, user.avatarId);
+
+  const toggleTopicExpand = (id) => {
+    setExpandedTopics((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleProjectExpand = (id) => {
+    setExpandedProjects((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleOpenLink = async (url) => {
+    if (!url) return;
+    let fullUrl = url.trim();
+    if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+      fullUrl = `https://${fullUrl}`;
+    }
+    try {
+      const supported = await Linking.canOpenURL(fullUrl);
+      if (supported) {
+        await Linking.openURL(fullUrl);
+      } else {
+        Alert.alert('Invalid Link', 'Unable to open the specified URL.');
+      }
+    } catch (err) {
+      Alert.alert('Link Error', 'Could not open project URL.');
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'Completed':
+        return { bg: '#EBF4EE', text: '#24563B', border: '#C6DEC9' };
+      case 'Active':
+        return { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0' };
+      case 'Planning':
+        return { bg: '#FEF3C7', text: '#D97706', border: '#FDE68A' };
+      case 'Archived':
+        return { bg: '#F1F5F9', text: '#64748B', border: '#CBD5E1' };
+      case 'In Progress':
+      default:
+        return { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' };
+    }
+  };
+
+  const hasResearchTopics = Array.isArray(user.researchTopics) && user.researchTopics.length > 0;
+  const hasResearchInterests = Array.isArray(user.researchInterests) && user.researchInterests.length > 0;
+  const hasProjects = Array.isArray(user.projects) && user.projects.length > 0;
 
   return (
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
@@ -28,8 +78,8 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
             <View style={styles.header}>
               <Image source={{ uri: profileImage }} style={styles.avatar} />
               <Text style={styles.name}>{user.name}</Text>
-              <Text style={styles.role}>{user.role}</Text>
-              <Text style={styles.organization}>{user.organization}</Text>
+              <Text style={styles.role}>{user.role || 'Researcher'}</Text>
+              <Text style={styles.organization}>{user.organization || 'Independent Researcher'}</Text>
 
               {Boolean(user.matchScore) ? (
                 <View style={styles.matchBadge}>
@@ -53,7 +103,7 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
               />
             </View>
 
-            {/* AI Semantic Match Analysis (When supported by backend) */}
+            {/* AI Semantic Match Analysis */}
             {(Boolean(user.matchExplanation) || user.semanticScore !== undefined) ? (
               <View style={styles.aiCard}>
                 <View style={styles.aiCardHeader}>
@@ -108,8 +158,57 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
               </View>
             ) : null}
 
-            {/* Research Interests */}
-            {Array.isArray(user.researchInterests) && user.researchInterests.length > 0 ? (
+            {/* Structured Research Topics */}
+            {hasResearchTopics ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Research Focus Areas ({user.researchTopics.length})</Text>
+                {user.researchTopics.map((topic, idx) => {
+                  const topicKey = topic._id || `modal-topic-${idx}`;
+                  const isExpanded = Boolean(expandedTopics[topicKey]);
+                  const isLong = topic.description && topic.description.length > 80;
+
+                  return (
+                    <View key={topicKey} style={styles.cardItem}>
+                      <Text style={styles.cardTitle}>{topic.title}</Text>
+                      {Boolean(topic.domain) && (
+                        <View style={styles.modalDomainBadge}>
+                          <Ionicons name="school-outline" size={11} color={COLORS.primary} style={{ marginRight: 3 }} />
+                          <Text style={styles.modalDomainBadgeText}>{topic.domain}</Text>
+                        </View>
+                      )}
+                      {Boolean(topic.description) && (
+                        <View style={{ marginTop: 4 }}>
+                          <Text
+                            style={styles.cardDesc}
+                            numberOfLines={isExpanded ? undefined : 2}
+                          >
+                            {topic.description}
+                          </Text>
+                          {isLong && (
+                            <TouchableOpacity
+                              onPress={() => toggleTopicExpand(topicKey)}
+                              style={{ marginTop: 2 }}
+                            >
+                              <Text style={styles.expandText}>{isExpanded ? 'Show Less' : 'Show More'}</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                      {Array.isArray(topic.skills) && topic.skills.length > 0 && (
+                        <View style={styles.pillsContainer}>
+                          {topic.skills.map((skill, sIdx) => (
+                            <View key={`ts-${sIdx}`} style={styles.topicSkillChip}>
+                              <Text style={styles.topicSkillText}>{skill}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : hasResearchInterests ? (
+              /* Fallback for legacy research interests */
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Research Interests</Text>
                 <View style={styles.pillsContainer}>
@@ -136,6 +235,87 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
               </View>
             ) : null}
 
+            {/* Featured Projects */}
+            {hasProjects ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Featured Projects ({user.projects.length})</Text>
+                {user.projects.map((proj, idx) => {
+                  const projKey = proj._id || `modal-proj-${idx}`;
+                  const isExpanded = Boolean(expandedProjects[projKey]);
+                  const isLong = proj.description && proj.description.length > 80;
+                  const statusTheme = getStatusColor(proj.status);
+
+                  return (
+                    <View key={projKey} style={styles.cardItem}>
+                      <View style={styles.projectHeaderRow}>
+                        <Text style={[styles.cardTitle, { flex: 1, marginRight: 8 }]}>
+                          {proj.title}
+                        </Text>
+                        <View
+                          style={[
+                            styles.modalStatusBadge,
+                            { backgroundColor: statusTheme.bg, borderColor: statusTheme.border }
+                          ]}
+                        >
+                          <Text style={[styles.modalStatusText, { color: statusTheme.text }]}>
+                            {proj.status || 'In Progress'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {Boolean(proj.domain) && (
+                        <View style={styles.modalDomainBadge}>
+                          <Ionicons name="folder-outline" size={11} color={COLORS.sage} style={{ marginRight: 3 }} />
+                          <Text style={styles.modalDomainBadgeText}>{proj.domain}</Text>
+                        </View>
+                      )}
+
+                      {Boolean(proj.description) && (
+                        <View style={{ marginTop: 4 }}>
+                          <Text
+                            style={styles.cardDesc}
+                            numberOfLines={isExpanded ? undefined : 2}
+                          >
+                            {proj.description}
+                          </Text>
+                          {isLong && (
+                            <TouchableOpacity
+                              onPress={() => toggleProjectExpand(projKey)}
+                              style={{ marginTop: 2 }}
+                            >
+                              <Text style={styles.expandText}>{isExpanded ? 'Show Less' : 'Show More'}</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+
+                      {Array.isArray(proj.techStack) && proj.techStack.length > 0 && (
+                        <View style={styles.pillsContainer}>
+                          {proj.techStack.map((tech, tIdx) => (
+                            <View key={`pt-${tIdx}`} style={styles.techChip}>
+                              <Text style={styles.techChipText}>{tech}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {Boolean(proj.link) && (
+                        <TouchableOpacity
+                          style={styles.linkRow}
+                          onPress={() => handleOpenLink(proj.link)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="link-outline" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
+                          <Text style={styles.linkText} numberOfLines={1}>{proj.link}</Text>
+                          <Ionicons name="open-outline" size={11} color={COLORS.primary} style={{ marginLeft: 3 }} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+
             {/* Publications */}
             {Array.isArray(user.publications) && user.publications.length > 0 ? (
               <View style={styles.section}>
@@ -147,19 +327,6 @@ const ProfileModalView = ({ visible, user, onClose, onOpenMessage }) => {
                     {pub.publicationVenue ? (
                       <Text style={styles.cardMeta}>Venue: {pub.publicationVenue}</Text>
                     ) : null}
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {/* Projects */}
-            {Array.isArray(user.projects) && user.projects.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Projects</Text>
-                {user.projects.map((proj, idx) => (
-                  <View key={idx} style={styles.cardItem}>
-                    <Text style={styles.cardTitle}>{proj.title}</Text>
-                    {proj.description ? <Text style={styles.cardDesc}>{proj.description}</Text> : null}
                   </View>
                 ))}
               </View>
@@ -179,23 +346,15 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '88%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
-    paddingTop: 30
+    maxHeight: '90%',
+    paddingBottom: 36
   },
   closeBtn: {
-    position: 'absolute',
-    top: 14,
-    right: 18,
-    zIndex: 10,
+    alignSelf: 'flex-end',
     padding: 6
-  },
-  closeBtnText: {
-    fontSize: 20,
-    color: COLORS.textMuted,
-    fontWeight: 'bold'
   },
   header: {
     alignItems: 'center',
@@ -331,7 +490,8 @@ const styles = StyleSheet.create({
   pillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6
+    gap: 6,
+    marginTop: 6
   },
   pill: {
     backgroundColor: COLORS.bgInput,
@@ -354,9 +514,9 @@ const styles = StyleSheet.create({
   },
   cardItem: {
     backgroundColor: COLORS.bgMain,
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 12,
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: COLORS.border
   },
@@ -368,13 +528,88 @@ const styles = StyleSheet.create({
   cardDesc: {
     fontSize: 12,
     color: COLORS.textMuted,
-    marginTop: 4
+    marginTop: 4,
+    lineHeight: 16
   },
   cardMeta: {
     fontSize: 11,
     color: COLORS.primary,
     marginTop: 4,
     fontWeight: '600'
+  },
+  projectHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  modalStatusBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1
+  },
+  modalStatusText: {
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase'
+  },
+  modalDomainBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginTop: 4
+  },
+  modalDomainBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.primary
+  },
+  expandText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary
+  },
+  topicSkillChip: {
+    backgroundColor: COLORS.sageLight,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6
+  },
+  topicSkillText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.sage
+  },
+  techChip: {
+    backgroundColor: COLORS.bgInput,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border
+  },
+  techChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.textMain
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight
+  },
+  linkText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.primary
   }
 });
 

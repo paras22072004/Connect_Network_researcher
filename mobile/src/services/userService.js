@@ -20,12 +20,40 @@ export const deletePublication = async (pubId) => {
   return response.data;
 };
 
+// Project CRUD APIs
 export const addProject = async (projData) => {
   const response = await API.post('/users/projects', projData);
   return response.data;
 };
+export const addProjectApi = addProject;
+
+export const updateProject = async (projId, projData) => {
+  const response = await API.put(`/users/projects/${projId}`, projData);
+  return response.data;
+};
+export const updateProjectApi = updateProject;
 
 export const deleteProject = async (projId) => {
   const response = await API.delete(`/users/projects/${projId}`);
   return response.data;
 };
+export const deleteProjectApi = deleteProject;
+
+// Research Topics CRUD APIs
+export const addResearchTopic = async (topicData) => {
+  const response = await API.post('/users/research', topicData);
+  return response.data;
+};
+export const addResearchTopicApi = addResearchTopic;
+
+export const updateResearchTopic = async (topicId, topicData) => {
+  const response = await API.put(`/users/research/${topicId}`, topicData);
+  return response.data;
+};
+export const updateResearchTopicApi = updateResearchTopic;
+
+export const deleteResearchTopic = async (topicId) => {
+  const response = await API.delete(`/users/research/${topicId}`);
+  return response.data;
+};
+export const deleteResearchTopicApi = deleteResearchTopic;
