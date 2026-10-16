@@ -4,30 +4,23 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ScrollView,
-  FlatList,
   Modal,
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Platform
+  Platform,
+  Keyboard,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '../theme/theme';
 import { searchCatalogApi, suggestCatalogItemApi } from '../services/catalogService';
 import { searchLocalCatalog, resolveCanonicalName } from '../constants/catalogs';
 
-/**
- * Standardized Searchable Catalog Multi-Select Component.
- * Supports:
- * - type: 'skill' | 'interest' | 'domain'
- * - selectedValues: Array<string> or string (if singleSelect)
- * - onValuesChange: (newValues: Array<string> | string) => void
- * - singleSelect: boolean (default false)
- * - placeholder: string
- * - label: string (optional)
- * - disabled: boolean (optional)
- */
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 const CatalogMultiSelect = ({
   type = 'skill',
   selectedValues = [],
@@ -39,7 +32,6 @@ const CatalogMultiSelect = ({
   disabled = false,
   maxItems
 }) => {
-  // Normalize selected values into array of strings
   const currentList = useMemo(() => {
     if (!selectedValues) return [];
     if (Array.isArray(selectedValues)) return selectedValues.filter(Boolean);
@@ -57,7 +49,6 @@ const CatalogMultiSelect = ({
   const [isDropdownVisible, setIsDropdownVisible] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Suggest Custom Item Modal State
   const [isSuggestModalVisible, setIsSuggestModalVisible] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customCategory, setCustomCategory] = useState('');
@@ -66,7 +57,6 @@ const CatalogMultiSelect = ({
 
   const debounceTimer = useRef(null);
 
-  // Default labels and placeholders based on catalog type
   const typeLabels = useMemo(() => {
     switch (type) {
       case 'skill':
@@ -79,7 +69,7 @@ const CatalogMultiSelect = ({
       case 'interest':
         return {
           title: 'Research Interests',
-          placeholder: placeholder || 'Search interests (e.g. NLP, Computer Vision, GNN)...',
+          placeholder: placeholder || 'Search interests (e.g. NLP, Computer Vision)...',
           typeName: 'Research Topic',
           suggestTitle: 'Suggest a Research Topic'
         };
@@ -100,21 +90,14 @@ const CatalogMultiSelect = ({
     }
   }, [type, placeholder]);
 
-  // Perform search query when input changes
   useEffect(() => {
-    if (!isDropdownVisible && !searchQuery.trim()) {
-      return;
-    }
+    if (!isDropdownVisible && !searchQuery.trim()) return;
 
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-    }
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-    // Instant local results for snappy responsive feeling
     const immediateLocal = searchLocalCatalog(type, searchQuery, 15);
     setSuggestions(immediateLocal);
 
-    // Debounced API query for full synced catalog
     debounceTimer.current = setTimeout(async () => {
       setLoading(true);
       try {
@@ -123,7 +106,7 @@ const CatalogMultiSelect = ({
           setSuggestions(results);
         }
       } catch (err) {
-        // Fallback to local already set
+        // Fallback to local
       } finally {
         setLoading(false);
       }
@@ -134,7 +117,6 @@ const CatalogMultiSelect = ({
     };
   }, [searchQuery, type, isDropdownVisible]);
 
-  // Handle selection of a canonical item
   const handleSelectItem = (item) => {
     const canonicalName = item.name || resolveCanonicalName(type, item);
     if (!canonicalName) return;
@@ -143,53 +125,45 @@ const CatalogMultiSelect = ({
       onValuesChange(canonicalName);
       setSearchQuery('');
       setIsDropdownVisible(false);
+      Keyboard.dismiss();
       return;
     }
 
-    // Prevent duplicates (case-insensitive canonical check)
     const exists = currentList.some(
       (v) => v.toLowerCase() === canonicalName.toLowerCase()
     );
 
     if (exists) {
-      // Remove if already selected
       handleRemoveItem(canonicalName);
     } else {
       if (maxItems && currentList.length >= maxItems) {
         Alert.alert('Limit Reached', `You can select up to ${maxItems} items.`);
         return;
       }
-      const updated = [...currentList, canonicalName];
-      onValuesChange(updated);
+      onValuesChange([...currentList, canonicalName]);
     }
-
     setSearchQuery('');
   };
 
-  // Handle removing a chip
   const handleRemoveItem = (itemToRemove) => {
     if (disabled) return;
     if (singleSelect) {
       onValuesChange('');
       return;
     }
-    const updated = currentList.filter(
-      (v) => v.toLowerCase() !== itemToRemove.toLowerCase()
+    onValuesChange(
+      currentList.filter((v) => v.toLowerCase() !== itemToRemove.toLowerCase())
     );
-    onValuesChange(updated);
   };
 
-  // Open the "Suggest Custom Item" modal
   const handleOpenSuggest = () => {
-    const initialName = searchQuery.trim();
-    setCustomName(initialName);
+    setCustomName(searchQuery.trim());
     setCustomCategory('');
     setCustomDesc('');
     setIsSuggestModalVisible(true);
     setIsDropdownVisible(false);
   };
 
-  // Submit custom suggestion
   const handleSubmitCustom = async () => {
     if (!customName.trim()) {
       Alert.alert('Required', 'Please enter a name for the suggestion.');
@@ -210,10 +184,9 @@ const CatalogMultiSelect = ({
       if (res?.alreadyExists) {
         Alert.alert('Recognized Standard', `Recognized and mapped to canonical: "${addedName}".`);
       } else {
-        Alert.alert('Submitted', `"${addedName}" has been added to your profile and submitted for catalog review.`);
+        Alert.alert('Submitted', `"${addedName}" has been added to your profile.`);
       }
 
-      // Add to current selection
       if (singleSelect) {
         onValuesChange(addedName);
       } else {
@@ -228,7 +201,6 @@ const CatalogMultiSelect = ({
       setIsSuggestModalVisible(false);
       setSearchQuery('');
     } catch (err) {
-      // If server error or unauthenticated, still allow user to add locally
       const fallbackName = customName.trim();
       if (singleSelect) {
         onValuesChange(fallbackName);
@@ -249,14 +221,24 @@ const CatalogMultiSelect = ({
 
   const isItemSelected = (item) => {
     const itemName = item.name || item;
-    return currentList.some(
-      (v) => v.toLowerCase() === itemName.toLowerCase()
-    );
+    return currentList.some((v) => v.toLowerCase() === itemName.toLowerCase());
   };
 
   return (
-    <View style={styles.container}>
-      {/* Optional Label */}
+    <View style={[styles.container, isDropdownVisible && styles.containerActive]}>
+      {/* Outside touch auto-dismiss backdrop */}
+      {isDropdownVisible && (
+        <TouchableWithoutFeedback
+          onPress={() => {
+            setIsDropdownVisible(false);
+            Keyboard.dismiss();
+          }}
+          accessible={false}
+        >
+          <View style={styles.backdropOverlay} />
+        </TouchableWithoutFeedback>
+      )}
+
       {label ? (
         <View style={styles.labelRow}>
           <Text style={styles.label}>{label}</Text>
@@ -264,7 +246,6 @@ const CatalogMultiSelect = ({
         </View>
       ) : null}
 
-      {/* Selected Items Chips (Multi-Select Mode) */}
       {!singleSelect && currentList.length > 0 && (
         <View style={styles.chipContainer}>
           {currentList.map((item, index) => (
@@ -280,7 +261,7 @@ const CatalogMultiSelect = ({
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${item}`}
                 >
-                  <Ionicons name="close" size={14} color={COLORS.primaryDark} />
+                  <Ionicons name="close" size={13} color={COLORS.primaryDark || '#15803D'} />
                 </TouchableOpacity>
               )}
             </View>
@@ -288,11 +269,10 @@ const CatalogMultiSelect = ({
         </View>
       )}
 
-      {/* Single Select Selected Item Badge */}
       {singleSelect && currentList.length > 0 && (
         <View style={styles.singleSelectedBox}>
           <View style={styles.singleSelectedLeft}>
-            <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} style={{ marginRight: 6 }} />
+            <Ionicons name="checkmark-circle" size={17} color={COLORS.primary || '#15803D'} style={{ marginRight: 8 }} />
             <Text style={styles.singleSelectedText} numberOfLines={1}>
               {currentList[0]}
             </Text>
@@ -303,25 +283,24 @@ const CatalogMultiSelect = ({
               style={styles.singleRemoveBtn}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="close-circle" size={18} color={COLORS.danger} />
+              <Ionicons name="close-circle" size={18} color={COLORS.danger || '#DC2626'} />
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      {/* Search Input Bar */}
       {(!singleSelect || currentList.length === 0) && (
         <View style={[styles.inputWrapper, isDropdownVisible && styles.inputWrapperFocused]}>
           <Ionicons
             name="search-outline"
-            size={18}
-            color={isDropdownVisible ? COLORS.primary : COLORS.sage}
+            size={17}
+            color={isDropdownVisible ? (COLORS.primary || '#15803D') : '#9CA3AF'}
             style={styles.searchIcon}
           />
           <TextInput
             style={styles.input}
             placeholder={typeLabels.placeholder}
-            placeholderTextColor={COLORS.textLight}
+            placeholderTextColor={COLORS.textLight || '#9CA3AF'}
             value={searchQuery}
             onChangeText={(text) => {
               setSearchQuery(text);
@@ -333,80 +312,61 @@ const CatalogMultiSelect = ({
             autoCorrect={false}
           />
           {loading && (
-            <ActivityIndicator size="small" color={COLORS.primary} style={styles.loader} />
+            <ActivityIndicator size="small" color={COLORS.primary || '#15803D'} style={styles.loader} />
           )}
           {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              style={styles.clearSearchBtn}
-            >
-              <Ionicons name="close-circle" size={16} color={COLORS.textLight} />
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
+              <Ionicons name="close-circle" size={16} color="#9CA3AF" />
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      {/* Helper text if provided */}
       {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
 
-      {/* Dropdown Suggestions List */}
       {isDropdownVisible && (
         <View style={styles.dropdownContainer}>
           <View style={styles.dropdownHeader}>
-            <Text style={styles.dropdownHeaderText}>
-              {searchQuery ? `Suggestions for "${searchQuery}"` : `Standard ${typeLabels.title}`}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setIsDropdownVisible(false)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={styles.dropdownCloseText}>Done</Text>
-            </TouchableOpacity>
+            <View style={styles.dropdownHeaderLeft}>
+              <Ionicons
+                name={searchQuery ? 'search-outline' : 'sparkles-outline'}
+                size={13}
+                color={COLORS.sage || '#5A7D69'}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.dropdownHeaderText} numberOfLines={1}>
+                {searchQuery ? `Suggestions for "${searchQuery}"` : `Standard ${typeLabels.title}`}
+              </Text>
+            </View>
           </View>
 
-          <ScrollView
-            style={styles.dropdownScroll}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-          >
+          <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
             {suggestions.map((item, idx) => {
               const selected = isItemSelected(item);
               return (
                 <TouchableOpacity
                   key={`${item.id || item.name}-${idx}`}
-                  style={[
-                    styles.suggestionItem,
-                    selected && styles.suggestionItemSelected
-                  ]}
+                  style={[styles.suggestionItem, selected && styles.suggestionItemSelected]}
                   onPress={() => handleSelectItem(item)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.suggestionLeft}>
                     <View style={styles.suggestionNameRow}>
-                      <Text
-                        style={[
-                          styles.suggestionName,
-                          selected && styles.suggestionNameActive
-                        ]}
-                      >
+                      <Text style={[styles.suggestionName, selected && styles.suggestionNameActive]}>
                         {item.name}
                       </Text>
                       {item.matchedAlias && (
                         <View style={styles.aliasBadge}>
-                          <Text style={styles.aliasBadgeText}>
-                            Matched: &quot;{item.matchedAlias}&quot;
-                          </Text>
+                          <Text style={styles.aliasBadgeText}>Matched: &quot;{item.matchedAlias}&quot;</Text>
                         </View>
                       )}
                     </View>
-                    {item.category && (
-                      <Text style={styles.suggestionCategory}>{item.category}</Text>
-                    )}
+                    {item.category && <Text style={styles.suggestionCategory}>{item.category}</Text>}
                   </View>
                   <Ionicons
                     name={selected ? 'checkmark-circle' : 'add-circle-outline'}
                     size={20}
-                    color={selected ? COLORS.primary : COLORS.sageMuted}
+                    color={selected ? (COLORS.primary || '#15803D') : '#9CA3AF'}
                   />
                 </TouchableOpacity>
               );
@@ -414,31 +374,25 @@ const CatalogMultiSelect = ({
 
             {suggestions.length === 0 && (
               <View style={styles.emptySuggestionBox}>
-                <Ionicons name="sparkles-outline" size={24} color={COLORS.sage} />
+                <Ionicons name="sparkles-outline" size={22} color="#9CA3AF" />
                 <Text style={styles.emptySuggestionText}>
                   No catalog match found for &quot;{searchQuery}&quot;
                 </Text>
               </View>
             )}
 
-            {/* Controlled "Suggest Custom Item" Button */}
-            <TouchableOpacity
-              style={styles.suggestActionBtn}
-              onPress={handleOpenSuggest}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={18} color={COLORS.primary} />
+            <TouchableOpacity style={styles.suggestActionBtn} onPress={handleOpenSuggest} activeOpacity={0.8}>
+              <Ionicons name="add-circle" size={17} color={COLORS.primary || '#15803D'} />
               <Text style={styles.suggestActionBtnText}>
                 {searchQuery.trim()
                   ? `Can't find it? Suggest "${searchQuery.trim()}"`
-                  : `+ Suggest new ${typeLabels.typeName}`}
+                  : `Suggest new ${typeLabels.typeName}`}
               </Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
       )}
 
-      {/* Suggest Custom Item Modal */}
       <Modal
         visible={isSuggestModalVisible}
         transparent
@@ -449,14 +403,14 @@ const CatalogMultiSelect = ({
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="bulb-outline" size={22} color={COLORS.primary} style={{ marginRight: 8 }} />
+                <Ionicons name="bulb-outline" size={20} color={COLORS.primary || '#15803D'} style={{ marginRight: 8 }} />
                 <Text style={styles.modalTitle}>{typeLabels.suggestTitle}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setIsSuggestModalVisible(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close" size={22} color={COLORS.textMuted} />
+                <Ionicons name="close" size={20} color={COLORS.textMuted || '#6B7280'} />
               </TouchableOpacity>
             </View>
 
@@ -470,8 +424,8 @@ const CatalogMultiSelect = ({
                 style={styles.modalInput}
                 value={customName}
                 onChangeText={setCustomName}
-                placeholder={`e.g. LangChain, Graph Neural Networks`}
-                placeholderTextColor={COLORS.textLight}
+                placeholder="e.g. LangChain, Graph Neural Networks"
+                placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                 autoCapitalize="words"
               />
             </View>
@@ -483,18 +437,18 @@ const CatalogMultiSelect = ({
                 value={customCategory}
                 onChangeText={setCustomCategory}
                 placeholder="e.g. AI & Data Science, Robotics"
-                placeholderTextColor={COLORS.textLight}
+                placeholderTextColor={COLORS.textLight || '#9CA3AF'}
               />
             </View>
 
             <View style={styles.modalFormGroup}>
               <Text style={styles.modalLabel}>Short Description (Optional)</Text>
               <TextInput
-                style={[styles.modalInput, { height: 60, textAlignVertical: 'top' }]}
+                style={[styles.modalInput, { height: 64, textAlignVertical: 'top' }]}
                 value={customDesc}
                 onChangeText={setCustomDesc}
                 placeholder="Brief explanation of how this skill or topic is applied..."
-                placeholderTextColor={COLORS.textLight}
+                placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                 multiline
               />
             </View>
@@ -514,7 +468,7 @@ const CatalogMultiSelect = ({
                 disabled={submittingCustom}
               >
                 {submittingCustom ? (
-                  <ActivityIndicator size="small" color={COLORS.textWhite} />
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.modalSubmitText}>Add & Suggest</Text>
                 )}
@@ -529,7 +483,32 @@ const CatalogMultiSelect = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginVertical: 4
+    marginVertical: 6,
+    position: 'relative'
+  },
+  containerActive: {
+    zIndex: Platform.OS === 'ios' ? 9999 : 1000
+  },
+  backdropOverlay: {
+    ...Platform.select({
+      web: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 990
+      },
+      default: {
+        position: 'absolute',
+        top: -SCREEN_HEIGHT * 2,
+        left: -SCREEN_WIDTH * 2,
+        width: SCREEN_WIDTH * 5,
+        height: SCREEN_HEIGHT * 5,
+        zIndex: 990
+      }
+    }),
+    backgroundColor: 'transparent'
   },
   labelRow: {
     flexDirection: 'row',
@@ -540,52 +519,54 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textMain,
-    letterSpacing: 0.2
+    color: COLORS.textMain || '#1C1C1E',
+    letterSpacing: -0.1
   },
   singleBadge: {
     fontSize: 11,
-    color: COLORS.sage,
+    color: COLORS.sage || '#6B7280',
     fontWeight: '500'
   },
   chipContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 8
+    marginBottom: 8,
+    zIndex: 1000
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primaryLight,
-    borderColor: '#C7DEC9',
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 10,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    borderColor: '#C4DEC9',
+    borderWidth: 0.8,
+    borderRadius: 20,
+    paddingHorizontal: 12,
     paddingVertical: 5
   },
   chipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.primaryDark,
-    marginRight: 4,
-    maxWidth: 200
+    color: COLORS.primaryDark || '#15803D',
+    marginRight: 6,
+    maxWidth: 220
   },
   chipCloseBtn: {
     padding: 2,
-    borderRadius: 8
+    borderRadius: 10
   },
   singleSelectedBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.primaryLight,
-    borderColor: '#B9D5BC',
-    borderWidth: 1,
-    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    borderColor: '#C4DEC9',
+    borderWidth: 0.8,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 6
+    marginBottom: 6,
+    zIndex: 1000
   },
   singleSelectedLeft: {
     flexDirection: 'row',
@@ -593,27 +574,43 @@ const styles = StyleSheet.create({
     flex: 1
   },
   singleSelectedText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: COLORS.primaryDark,
+    color: COLORS.primaryDark || '#15803D',
     flex: 1
   },
   singleRemoveBtn: {
-    padding: 4
+    padding: 2
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.bgInput,
-    borderRadius: 10,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
     paddingHorizontal: 12,
-    height: 44
+    height: 44,
+    zIndex: 1000
   },
   inputWrapperFocused: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.bgCard
+    borderColor: COLORS.primary || '#24563B',
+    borderWidth: 1.5,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 0 3px rgba(36, 86, 59, 0.12)'
+      },
+      ios: {
+        shadowColor: COLORS.primary || '#24563B',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 4
+      },
+      android: {
+        elevation: 2
+      }
+    })
   },
   searchIcon: {
     marginRight: 8
@@ -621,7 +618,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 13,
-    color: COLORS.textMain,
+    color: COLORS.textMain || '#1C1C1E',
     paddingVertical: 0
   },
   loader: {
@@ -632,66 +629,70 @@ const styles = StyleSheet.create({
   },
   helperText: {
     fontSize: 11,
-    color: COLORS.textLight,
-    marginTop: 4
+    color: COLORS.textLight || '#9CA3AF',
+    marginTop: 4,
+    marginLeft: 2
   },
   dropdownContainer: {
-    backgroundColor: COLORS.bgCard,
-    borderRadius: 12,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    marginTop: 4,
-    maxHeight: 250,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    marginTop: 6,
+    maxHeight: 260,
+    overflow: 'hidden',
     ...Platform.select({
-      web: { boxShadow: '0 4px 12px rgba(0,0,0,0.1)' },
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+      web: {
+        boxShadow: '0 8px 24px rgba(26, 36, 30, 0.12)'
+      },
+      ios: {
+        shadowColor: '#1A221E',
+        shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 4
+        shadowRadius: 12
+      },
+      android: {
+        elevation: 6
       }
     }),
-    zIndex: 999
+    zIndex: 1001
   },
   dropdownHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
-    backgroundColor: '#FAF9F6',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 0.8,
+    borderBottomColor: COLORS.borderLight || 'rgba(0,0,0,0.05)',
+    backgroundColor: '#F9FAFB'
+  },
+  dropdownHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1
   },
   dropdownHeaderText: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.textMuted,
+    color: COLORS.textMuted || '#6B7280',
     textTransform: 'uppercase',
-    letterSpacing: 0.5
-  },
-  dropdownCloseText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.primary
+    letterSpacing: 0.4,
+    flex: 1
   },
   dropdownScroll: {
-    maxHeight: 200
+    maxHeight: 210
   },
   suggestionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLORS.borderLight || 'rgba(0,0,0,0.04)'
   },
   suggestionItemSelected: {
-    backgroundColor: COLORS.primaryLight
+    backgroundColor: COLORS.primaryLight || '#E8F5E9'
   },
   suggestionLeft: {
     flex: 1,
@@ -705,13 +706,13 @@ const styles = StyleSheet.create({
   suggestionName: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textMain
+    color: COLORS.textMain || '#1C1C1E'
   },
   suggestionNameActive: {
-    color: COLORS.primaryDark
+    color: COLORS.primaryDark || '#15803D'
   },
   aliasBadge: {
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#F3F4F6',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 1,
@@ -719,22 +720,22 @@ const styles = StyleSheet.create({
   },
   aliasBadgeText: {
     fontSize: 10,
-    color: '#475569',
+    color: '#6B7280',
     fontWeight: '500'
   },
   suggestionCategory: {
     fontSize: 11,
-    color: COLORS.sageMuted,
+    color: COLORS.sageMuted || '#9CA3AF',
     marginTop: 2
   },
   emptySuggestionBox: {
-    padding: 16,
+    padding: 18,
     alignItems: 'center',
     justifyContent: 'center'
   },
   emptySuggestionText: {
     fontSize: 12,
-    color: COLORS.textMuted,
+    color: COLORS.textMuted || '#6B7280',
     marginTop: 6,
     textAlign: 'center'
   },
@@ -742,30 +743,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#F3F7F4',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#F9FAFB',
+    borderTopWidth: 0.8,
+    borderTopColor: COLORS.borderLight || 'rgba(0,0,0,0.06)'
   },
   suggestActionBtnText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.primary,
-    marginLeft: 4
+    fontWeight: '700',
+    color: COLORS.primary || '#15803D',
+    marginLeft: 6
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(26, 36, 30, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20
   },
   modalCard: {
     width: '100%',
-    maxWidth: 420,
-    backgroundColor: COLORS.bgCard,
-    borderRadius: 16,
+    maxWidth: 380,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    borderRadius: 18,
     padding: 20,
     ...SHADOWS.md
   },
@@ -773,16 +774,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8
+    marginBottom: 6
   },
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.textMain
+    color: COLORS.textMain || '#1C1C1E'
   },
   modalSubtitle: {
     fontSize: 12,
-    color: COLORS.textMuted,
+    color: COLORS.textMuted || '#6B7280',
     lineHeight: 16,
     marginBottom: 16
   },
@@ -792,47 +793,48 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.textMain,
-    marginBottom: 4
+    color: COLORS.textMain || '#1C1C1E',
+    marginBottom: 5
   },
   modalInput: {
-    backgroundColor: COLORS.bgInput,
-    borderRadius: 8,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     fontSize: 13,
-    color: COLORS.textMain
+    color: COLORS.textMain || '#1C1C1E'
   },
   modalActionRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
-    marginTop: 16
+    marginTop: 18
   },
   modalCancelBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.border
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    backgroundColor: COLORS.bgInput || '#F3F4F6'
   },
   modalCancelText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textMuted
+    color: COLORS.textMain || '#1C1C1E'
   },
   modalSubmitBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: COLORS.primary
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary || '#15803D'
   },
   modalSubmitText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textWhite
+    fontWeight: '700',
+    color: '#FFFFFF'
   }
 });
 

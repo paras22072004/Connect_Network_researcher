@@ -7,12 +7,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  Platform,
   Modal,
   Alert,
   TextInput,
   Linking,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -95,7 +95,7 @@ const ProfileScreen = ({ navigation }) => {
     }
   };
 
-  // Open Research Topic Modal (for add or edit)
+  // Open Research Topic Modal
   const openAddResearchModal = () => {
     setEditingTopicId(null);
     setTopicTitle('');
@@ -127,7 +127,6 @@ const ProfileScreen = ({ navigation }) => {
       return;
     }
 
-    // Prevent duplicate entries
     const existing = user?.researchTopics || [];
     const isDuplicate = existing.some(
       (t) =>
@@ -141,12 +140,10 @@ const ProfileScreen = ({ navigation }) => {
 
     setSavingTopic(true);
     setTopicError('');
-
     try {
       const skillsArray = Array.isArray(topicSkills)
         ? topicSkills
         : (topicSkills ? topicSkills.split(',').map((s) => s.trim()).filter(Boolean) : []);
-
       const finalDomain = typeof topicDomain === 'string'
         ? topicDomain.trim()
         : (Array.isArray(topicDomain) ? topicDomain[0] || '' : '');
@@ -202,7 +199,6 @@ const ProfileScreen = ({ navigation }) => {
                   if (meRes.success && meRes.user) updateUser(meRes.user);
                 }
               } else {
-                // Fallback for legacy topic strings
                 const updatedTopics = (user.researchTopics || []).filter(
                   (t) => t.title !== topic.title
                 );
@@ -224,7 +220,7 @@ const ProfileScreen = ({ navigation }) => {
     );
   };
 
-  // Open Project Modal (for add or edit)
+  // Open Project Modal
   const openAddProjectModal = () => {
     setEditingProjectId(null);
     setProjectTitle('');
@@ -260,7 +256,6 @@ const ProfileScreen = ({ navigation }) => {
       return;
     }
 
-    // Check duplicate
     const existing = user?.projects || [];
     const isDuplicate = existing.some(
       (p) =>
@@ -272,7 +267,6 @@ const ProfileScreen = ({ navigation }) => {
       return;
     }
 
-    // Validate optional URL
     const trimmedLink = projectLink.trim();
     if (trimmedLink) {
       const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s]*)?$/;
@@ -284,12 +278,10 @@ const ProfileScreen = ({ navigation }) => {
 
     setSavingProject(true);
     setProjectError('');
-
     try {
       const techArray = Array.isArray(projectTech)
         ? projectTech
         : (projectTech ? projectTech.split(',').map((t) => t.trim()).filter(Boolean) : []);
-
       const finalDomain = typeof projectDomain === 'string'
         ? projectDomain.trim()
         : (Array.isArray(projectDomain) ? projectDomain[0] || '' : '');
@@ -382,28 +374,20 @@ const ProfileScreen = ({ navigation }) => {
 
   const completeness = useMemo(() => {
     if (!user) return { score: 0, missing: [] };
-
     let score = 0;
     const missing = [];
-
     if (user.name) score += 15;
     else missing.push('Full Name');
-
     if (user.profileImage) score += 15;
     else missing.push('Profile Photo');
-
     if (user.role) score += 10;
     else missing.push('Professional Role');
-
     if (user.organization) score += 10;
     else missing.push('Organization');
-
     if (user.bio && user.bio.trim().length > 10) score += 15;
     else missing.push('About / Bio');
-
     if (Array.isArray(user.skills) && user.skills.length > 0) score += 15;
     else missing.push('Skills');
-
     if (
       (Array.isArray(user.researchTopics) && user.researchTopics.length > 0) ||
       (Array.isArray(user.researchInterests) && user.researchInterests.length > 0)
@@ -412,7 +396,6 @@ const ProfileScreen = ({ navigation }) => {
     } else {
       missing.push('Research Interests');
     }
-
     if (
       (Array.isArray(user.projects) && user.projects.length > 0) ||
       (Array.isArray(user.publications) && user.publications.length > 0)
@@ -421,7 +404,6 @@ const ProfileScreen = ({ navigation }) => {
     } else {
       missing.push('Projects or Publications');
     }
-
     return {
       score: Math.min(score, 100),
       missing
@@ -429,10 +411,8 @@ const ProfileScreen = ({ navigation }) => {
   }, [user]);
 
   if (!user) return <LoadingView message="Loading user profile..." />;
-
   const resolvedAvatarUri = getAvatarUri(user.profileImage, user.avatarId);
 
-  // Normalize research topics (prefer structured researchTopics, fallback to string researchInterests)
   const researchTopicsList =
     Array.isArray(user.researchTopics) && user.researchTopics.length > 0
       ? user.researchTopics
@@ -445,13 +425,12 @@ const ProfileScreen = ({ navigation }) => {
           skills: []
         }))
       : [];
-
   const projectsList = Array.isArray(user.projects) ? user.projects : [];
 
   const getStatusColor = (status) => {
     switch (status) {
       case 'Completed':
-        return { bg: '#EBF4EE', text: '#24563B', border: '#C6DEC9' };
+        return { bg: '#E8F5E9', text: '#2E7D32', border: '#C8E6C9' };
       case 'Active':
         return { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0' };
       case 'Planning':
@@ -460,7 +439,7 @@ const ProfileScreen = ({ navigation }) => {
         return { bg: '#F1F5F9', text: '#64748B', border: '#CBD5E1' };
       case 'In Progress':
       default:
-        return { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' };
+        return { bg: '#E3F2FD', text: '#1565C0', border: '#BBDEFB' };
     }
   };
 
@@ -473,8 +452,8 @@ const ProfileScreen = ({ navigation }) => {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={fetchLatestProfile}
-          tintColor={COLORS.primary || '#007AFF'}
-          colors={[COLORS.primary || '#007AFF']}
+          tintColor={COLORS.primary || '#15803D'}
+          colors={[COLORS.primary || '#15803D']}
         />
       }
     >
@@ -484,17 +463,16 @@ const ProfileScreen = ({ navigation }) => {
           <Image source={{ uri: resolvedAvatarUri }} style={styles.avatar} />
           {Boolean(user.discoverable) && <View style={styles.activeBeaconDot} />}
         </View>
-
         <Text style={styles.name}>{user.name}</Text>
         <Text style={styles.role}>{user.role || 'Researcher'}</Text>
         <Text style={styles.org}>{user.organization || 'Independent Researcher'}</Text>
-
+        
         <View style={styles.statusPillRow}>
           <View style={styles.statusPill}>
             <View
               style={[
                 styles.statusDot,
-                { backgroundColor: user.discoverable ? '#34C759' : '#8E8E93' }
+                { backgroundColor: user.discoverable ? '#10B981' : '#9CA3AF' }
               ]}
             />
             <Text style={styles.statusPillText}>
@@ -511,17 +489,16 @@ const ProfileScreen = ({ navigation }) => {
             accessibilityRole="button"
             activeOpacity={0.8}
           >
-            <Ionicons name="create-outline" size={16} color="#FFFFFF" style={styles.btnIcon} />
+            <Ionicons name="create-outline" size={15} color="#FFFFFF" style={styles.btnIcon} />
             <Text style={styles.btnPrimaryText}>Edit Profile</Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.btnOutline}
             onPress={() => navigation.navigate('Settings')}
             accessibilityRole="button"
             activeOpacity={0.8}
           >
-            <Ionicons name="settings-outline" size={16} color={COLORS.textMain || '#1C1C1E'} style={styles.btnIcon} />
+            <Ionicons name="settings-outline" size={15} color={COLORS.textMain || '#1C1C1E'} style={styles.btnIcon} />
             <Text style={styles.btnOutlineText}>Settings</Text>
           </TouchableOpacity>
         </View>
@@ -543,7 +520,6 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Progress Bar */}
         <View style={styles.progressBarTrack}>
           <View style={[styles.progressBarFill, { width: `${completeness.score}%` }]} />
         </View>
@@ -557,7 +533,7 @@ const ProfileScreen = ({ navigation }) => {
             <Text style={styles.completenessActionText}>
               + Add {completeness.missing.slice(0, 2).join(' & ')}
             </Text>
-            <Ionicons name="chevron-forward" size={14} color={COLORS.primary || '#007AFF'} />
+            <Ionicons name="chevron-forward" size={14} color={COLORS.primary || '#15803D'} />
           </TouchableOpacity>
         )}
       </View>
@@ -572,7 +548,7 @@ const ProfileScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <View style={styles.hubIconBg}>
-              <Ionicons name="qr-code-outline" size={20} color={COLORS.primary || '#007AFF'} />
+              <Ionicons name="qr-code-outline" size={18} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.hubTileTitle}>My QR Code</Text>
             <Text style={styles.hubTileSub}>Share profile</Text>
@@ -584,7 +560,7 @@ const ProfileScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <View style={styles.hubIconBg}>
-              <Ionicons name="people-outline" size={20} color={COLORS.primary || '#007AFF'} />
+              <Ionicons name="people-outline" size={18} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.hubTileTitle}>Build a Team</Text>
             <Text style={styles.hubTileSub}>AI match</Text>
@@ -596,7 +572,7 @@ const ProfileScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <View style={styles.hubIconBg}>
-              <Ionicons name="flask-outline" size={20} color={COLORS.primary || '#007AFF'} />
+              <Ionicons name="flask-outline" size={18} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.hubTileTitle}>Workspaces</Text>
             <Text style={styles.hubTileSub}>Manage tasks</Text>
@@ -608,25 +584,25 @@ const ProfileScreen = ({ navigation }) => {
             activeOpacity={0.7}
           >
             <View style={styles.hubIconBg}>
-              <Ionicons name="calendar-outline" size={20} color={COLORS.primary || '#007AFF'} />
+              <Ionicons name="calendar-outline" size={18} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.hubTileTitle}>Events</Text>
             <Text style={styles.hubTileSub}>Conferences</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.hubTile, { width: '100%', flexDirection: 'row', alignItems: 'center' }]}
+            style={[styles.hubTile, styles.hubTileFullWidth]}
             onPress={() => navigation.navigate('ResearchDiscovery')}
             activeOpacity={0.7}
           >
             <View style={[styles.hubIconBg, { marginRight: 12, marginBottom: 0 }]}>
-              <Ionicons name="document-text-outline" size={20} color={COLORS.primary || '#007AFF'} />
+              <Ionicons name="document-text-outline" size={18} color={COLORS.primary || '#15803D'} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.hubTileTitle}>Explore Research Papers</Text>
               <Text style={styles.hubTileSub}>Search academic preprints & collaborative authors</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted || '#8E8E93'} />
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted || '#9CA3AF'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -657,7 +633,7 @@ const ProfileScreen = ({ navigation }) => {
             accessibilityRole="button"
             accessibilityLabel="Add research topic"
           >
-            <Ionicons name="add-circle" size={17} color={COLORS.primary} style={{ marginRight: 4 }} />
+            <Ionicons name="add-circle" size={16} color={COLORS.primary || '#15803D'} style={{ marginRight: 4 }} />
             <Text style={styles.addInlineBtnText}>Add Focus</Text>
           </TouchableOpacity>
         </View>
@@ -668,43 +644,36 @@ const ProfileScreen = ({ navigation }) => {
               const topicKey = topic._id || `topic-${idx}`;
               const isExpanded = Boolean(expandedTopics[topicKey]);
               const isLongDesc = topic.description && topic.description.length > 80;
-
               return (
                 <View key={topicKey} style={styles.entryCard}>
-                  {/* Title & Actions Row */}
                   <View style={styles.entryHeaderRow}>
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={styles.entryTitle}>{topic.title}</Text>
                       {Boolean(topic.domain) && (
                         <View style={styles.domainBadge}>
-                          <Ionicons name="school-outline" size={11} color={COLORS.primary} style={{ marginRight: 3 }} />
+                          <Ionicons name="school-outline" size={11} color={COLORS.primary || '#15803D'} style={{ marginRight: 4 }} />
                           <Text style={styles.domainBadgeText}>{topic.domain}</Text>
                         </View>
                       )}
                     </View>
-
-                    {/* Owner controls */}
                     <View style={styles.entryActionsRow}>
                       <TouchableOpacity
                         style={styles.entryActionBtn}
                         onPress={() => openEditResearchModal(topic)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Edit research topic"
                       >
-                        <Ionicons name="pencil" size={15} color={COLORS.primary} />
+                        <Ionicons name="pencil" size={14} color={COLORS.primary || '#15803D'} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.entryActionBtn, styles.deleteActionBtn]}
                         onPress={() => handleDeleteResearchTopic(topic)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Delete research topic"
                       >
-                        <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                        <Ionicons name="trash-outline" size={14} color="#DC2626" />
                       </TouchableOpacity>
                     </View>
                   </View>
 
-                  {/* Description with Expand/Collapse */}
                   {Boolean(topic.description) && (
                     <View style={styles.descContainer}>
                       <Text
@@ -724,14 +693,13 @@ const ProfileScreen = ({ navigation }) => {
                           <Ionicons
                             name={isExpanded ? 'chevron-up' : 'chevron-down'}
                             size={12}
-                            color={COLORS.primary}
+                            color={COLORS.primary || '#15803D'}
                           />
                         </TouchableOpacity>
                       )}
                     </View>
                   )}
 
-                  {/* Skills / Keywords Chips */}
                   {Array.isArray(topic.skills) && topic.skills.length > 0 && (
                     <View style={styles.entryChipsRow}>
                       {topic.skills.map((skill, sIdx) => (
@@ -748,7 +716,7 @@ const ProfileScreen = ({ navigation }) => {
         ) : (
           <View style={styles.emptyStateCard}>
             <View style={styles.emptyIconCircle}>
-              <Ionicons name="sparkles-outline" size={22} color={COLORS.primary} />
+              <Ionicons name="sparkles-outline" size={20} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.emptyStateTitle}>No Research Topics Added</Text>
             <Text style={styles.emptyStateDesc}>
@@ -759,7 +727,7 @@ const ProfileScreen = ({ navigation }) => {
               onPress={openAddResearchModal}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Ionicons name="add" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
               <Text style={styles.emptyStateBtnText}>Add Research Topic</Text>
             </TouchableOpacity>
           </View>
@@ -784,7 +752,7 @@ const ProfileScreen = ({ navigation }) => {
             accessibilityRole="button"
             accessibilityLabel="Add project"
           >
-            <Ionicons name="add-circle" size={17} color={COLORS.primary} style={{ marginRight: 4 }} />
+            <Ionicons name="add-circle" size={16} color={COLORS.primary || '#15803D'} style={{ marginRight: 4 }} />
             <Text style={styles.addInlineBtnText}>Add Project</Text>
           </TouchableOpacity>
         </View>
@@ -796,10 +764,8 @@ const ProfileScreen = ({ navigation }) => {
               const isExpanded = Boolean(expandedProjects[projKey]);
               const isLongDesc = proj.description && proj.description.length > 80;
               const statusTheme = getStatusColor(proj.status);
-
               return (
                 <View key={projKey} style={styles.entryCard}>
-                  {/* Header Row: Title, Status, and Action Buttons */}
                   <View style={styles.entryHeaderRow}>
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={styles.entryTitle}>{proj.title}</Text>
@@ -819,35 +785,31 @@ const ProfileScreen = ({ navigation }) => {
                         </View>
                         {Boolean(proj.domain) && (
                           <View style={styles.domainBadge}>
-                            <Ionicons name="folder-outline" size={11} color={COLORS.sage} style={{ marginRight: 3 }} />
+                            <Ionicons name="folder-outline" size={11} color={COLORS.sage || '#6B7280'} style={{ marginRight: 3 }} />
                             <Text style={styles.domainBadgeText}>{proj.domain}</Text>
                           </View>
                         )}
                       </View>
                     </View>
 
-                    {/* Owner controls */}
                     <View style={styles.entryActionsRow}>
                       <TouchableOpacity
                         style={styles.entryActionBtn}
                         onPress={() => openEditProjectModal(proj)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Edit project"
                       >
-                        <Ionicons name="pencil" size={15} color={COLORS.primary} />
+                        <Ionicons name="pencil" size={14} color={COLORS.primary || '#15803D'} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.entryActionBtn, styles.deleteActionBtn]}
                         onPress={() => handleDeleteProject(proj)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        accessibilityLabel="Delete project"
                       >
-                        <Ionicons name="trash-outline" size={15} color={COLORS.danger} />
+                        <Ionicons name="trash-outline" size={14} color="#DC2626" />
                       </TouchableOpacity>
                     </View>
                   </View>
 
-                  {/* Description with Expand/Collapse */}
                   {Boolean(proj.description) && (
                     <View style={styles.descContainer}>
                       <Text
@@ -867,14 +829,13 @@ const ProfileScreen = ({ navigation }) => {
                           <Ionicons
                             name={isExpanded ? 'chevron-up' : 'chevron-down'}
                             size={12}
-                            color={COLORS.primary}
+                            color={COLORS.primary || '#15803D'}
                           />
                         </TouchableOpacity>
                       )}
                     </View>
                   )}
 
-                  {/* Tech Stack Chips */}
                   {Array.isArray(proj.techStack) && proj.techStack.length > 0 && (
                     <View style={styles.entryChipsRow}>
                       {proj.techStack.map((tech, tIdx) => (
@@ -885,20 +846,17 @@ const ProfileScreen = ({ navigation }) => {
                     </View>
                   )}
 
-                  {/* Project URL Link Button */}
                   {Boolean(proj.link) && (
                     <TouchableOpacity
                       style={styles.projectLinkBtn}
                       onPress={() => handleOpenLink(proj.link)}
                       activeOpacity={0.7}
-                      accessibilityRole="link"
-                      accessibilityLabel="Open project URL"
                     >
-                      <Ionicons name="link-outline" size={14} color={COLORS.primary} style={{ marginRight: 6 }} />
+                      <Ionicons name="link-outline" size={13} color={COLORS.primary || '#15803D'} style={{ marginRight: 6 }} />
                       <Text style={styles.projectLinkText} numberOfLines={1}>
                         {proj.link}
                       </Text>
-                      <Ionicons name="open-outline" size={12} color={COLORS.primary} style={{ marginLeft: 4 }} />
+                      <Ionicons name="open-outline" size={12} color={COLORS.primary || '#15803D'} style={{ marginLeft: 4 }} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -908,7 +866,7 @@ const ProfileScreen = ({ navigation }) => {
         ) : (
           <View style={styles.emptyStateCard}>
             <View style={styles.emptyIconCircle}>
-              <Ionicons name="construct-outline" size={22} color={COLORS.primary} />
+              <Ionicons name="construct-outline" size={20} color={COLORS.primary || '#15803D'} />
             </View>
             <Text style={styles.emptyStateTitle}>No Projects Added</Text>
             <Text style={styles.emptyStateDesc}>
@@ -919,7 +877,7 @@ const ProfileScreen = ({ navigation }) => {
               onPress={openAddProjectModal}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Ionicons name="add" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
               <Text style={styles.emptyStateBtnText}>Add Project</Text>
             </TouchableOpacity>
           </View>
@@ -954,23 +912,9 @@ const ProfileScreen = ({ navigation }) => {
         {user.researchDomains && user.researchDomains.length > 0 ? (
           <View style={styles.pillsRow}>
             {user.researchDomains.map((domain, idx) => (
-              <View
-                key={idx}
-                style={[
-                  styles.pill,
-                  {
-                    backgroundColor: '#E8F5E9',
-                    borderColor: '#C8E6C9',
-                    borderWidth: 1,
-                    flexDirection: 'row',
-                    alignItems: 'center'
-                  }
-                ]}
-              >
-                <Ionicons name="compass-outline" size={13} color={COLORS.primary} style={{ marginRight: 4 }} />
-                <Text style={[styles.pillText, { color: COLORS.primaryDark, fontWeight: '600' }]}>
-                  {domain}
-                </Text>
+              <View key={idx} style={styles.domainPill}>
+                <Ionicons name="compass-outline" size={13} color={COLORS.primary || '#15803D'} style={{ marginRight: 4 }} />
+                <Text style={styles.domainPillText}>{domain}</Text>
               </View>
             ))}
           </View>
@@ -981,7 +925,7 @@ const ProfileScreen = ({ navigation }) => {
         )}
       </View>
 
-      {/* 8. Research Publications */}
+      {/* 9. Research Publications */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>
           Research Publications {user.publications ? `(${user.publications.length})` : ''}
@@ -1003,7 +947,7 @@ const ProfileScreen = ({ navigation }) => {
         )}
       </View>
 
-      {/* 9. Account & Session Management */}
+      {/* 10. Account & Session Management */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Account & Session</Text>
         <Text style={styles.sessionEmailText}>Signed in as {user?.email}</Text>
@@ -1011,21 +955,17 @@ const ProfileScreen = ({ navigation }) => {
           style={styles.fullLogoutBtn}
           onPress={() => setShowLogoutModal(true)}
           activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Log out of GeoConnect"
         >
-          <Ionicons name="log-out-outline" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+          <Ionicons name="log-out-outline" size={17} color="#DC2626" style={{ marginRight: 8 }} />
           <Text style={styles.fullLogoutBtnText}>Log Out</Text>
         </TouchableOpacity>
       </View>
 
-      {/* =================================================================== */}
-      {/* ADD / EDIT RESEARCH TOPIC MODAL                                     */}
-      {/* =================================================================== */}
+      {/* CRUD RESEARCH TOPIC MODAL */}
       <Modal
         visible={researchModalVisible}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setResearchModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
@@ -1038,24 +978,23 @@ const ProfileScreen = ({ navigation }) => {
                 onPress={() => setResearchModalVisible(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close" size={22} color={COLORS.textMuted} />
+                <Ionicons name="close" size={20} color={COLORS.textMuted || '#6B7280'} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
               {Boolean(topicError) && (
                 <View style={styles.crudErrorBox}>
-                  <Ionicons name="alert-circle" size={15} color={COLORS.danger} style={{ marginRight: 6 }} />
+                  <Ionicons name="alert-circle" size={15} color="#DC2626" style={{ marginRight: 6 }} />
                   <Text style={styles.crudErrorText}>{topicError}</Text>
                 </View>
               )}
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Research Title / Area *</Text>
                 <TextInput
                   style={styles.crudInput}
                   placeholder="e.g. Graph Neural Networks, Climate Modeling"
-                  placeholderTextColor={COLORS.textLight}
+                  placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                   value={topicTitle}
                   onChangeText={(val) => {
                     setTopicTitle(val);
@@ -1063,7 +1002,6 @@ const ProfileScreen = ({ navigation }) => {
                   }}
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Domain / Field</Text>
                 <CatalogMultiSelect
@@ -1074,27 +1012,25 @@ const ProfileScreen = ({ navigation }) => {
                   placeholder="Select research domain (e.g. Healthcare, AI)..."
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Description / Objectives</Text>
                 <TextInput
                   style={[styles.crudInput, styles.crudTextArea]}
                   placeholder="Summarize your research hypothesis, focus areas, or goals..."
-                  placeholderTextColor={COLORS.textLight}
+                  placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                   value={topicDesc}
                   onChangeText={setTopicDesc}
                   multiline={true}
                   numberOfLines={3}
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Related Skills / Methodologies</Text>
                 <CatalogMultiSelect
                   type="skill"
                   selectedValues={topicSkills}
                   onValuesChange={setTopicSkills}
-                  placeholder="Select skills (e.g. PyTorch, CUDA, Spatial Statistics)..."
+                  placeholder="Select skills (e.g. PyTorch, CUDA)..."
                 />
               </View>
             </ScrollView>
@@ -1125,13 +1061,11 @@ const ProfileScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* =================================================================== */}
-      {/* ADD / EDIT PROJECT MODAL                                            */}
-      {/* =================================================================== */}
+      {/* CRUD PROJECT MODAL */}
       <Modal
         visible={projectModalVisible}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setProjectModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
@@ -1144,24 +1078,23 @@ const ProfileScreen = ({ navigation }) => {
                 onPress={() => setProjectModalVisible(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close" size={22} color={COLORS.textMuted} />
+                <Ionicons name="close" size={20} color={COLORS.textMuted || '#6B7280'} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
               {Boolean(projectError) && (
                 <View style={styles.crudErrorBox}>
-                  <Ionicons name="alert-circle" size={15} color={COLORS.danger} style={{ marginRight: 6 }} />
+                  <Ionicons name="alert-circle" size={15} color="#DC2626" style={{ marginRight: 6 }} />
                   <Text style={styles.crudErrorText}>{projectError}</Text>
                 </View>
               )}
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Project Title *</Text>
                 <TextInput
                   style={styles.crudInput}
                   placeholder="e.g. GeoConnect Spatial Engine"
-                  placeholderTextColor={COLORS.textLight}
+                  placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                   value={projectTitle}
                   onChangeText={(val) => {
                     setProjectTitle(val);
@@ -1169,7 +1102,6 @@ const ProfileScreen = ({ navigation }) => {
                   }}
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Status</Text>
                 <View style={styles.statusChipsSelector}>
@@ -1198,7 +1130,6 @@ const ProfileScreen = ({ navigation }) => {
                   })}
                 </View>
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Domain / Field</Text>
                 <CatalogMultiSelect
@@ -1206,39 +1137,36 @@ const ProfileScreen = ({ navigation }) => {
                   singleSelect={true}
                   selectedValues={projectDomain}
                   onValuesChange={setProjectDomain}
-                  placeholder="Select project domain (e.g. AI, Climate, Healthcare)..."
+                  placeholder="Select project domain (e.g. AI, Climate)..."
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Description</Text>
                 <TextInput
                   style={[styles.crudInput, styles.crudTextArea]}
                   placeholder="Describe project purpose, methodology, and key achievements..."
-                  placeholderTextColor={COLORS.textLight}
+                  placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                   value={projectDesc}
                   onChangeText={setProjectDesc}
                   multiline={true}
                   numberOfLines={3}
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Technologies / Skills</Text>
                 <CatalogMultiSelect
                   type="skill"
                   selectedValues={projectTech}
                   onValuesChange={setProjectTech}
-                  placeholder="Select technologies & skills (e.g. React Native, Python, MongoDB)..."
+                  placeholder="Select technologies & skills (e.g. React Native, Python)..."
                 />
               </View>
-
               <View style={styles.crudFormGroup}>
                 <Text style={styles.crudLabel}>Project Link / Repository (Optional)</Text>
                 <TextInput
                   style={styles.crudInput}
                   placeholder="https://github.com/..."
-                  placeholderTextColor={COLORS.textLight}
+                  placeholderTextColor={COLORS.textLight || '#9CA3AF'}
                   value={projectLink}
                   onChangeText={setProjectLink}
                   autoCapitalize="none"
@@ -1273,9 +1201,7 @@ const ProfileScreen = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* =================================================================== */}
-      {/* LOGOUT CONFIRMATION MODAL                                           */}
-      {/* =================================================================== */}
+      {/* LOGOUT CONFIRMATION MODAL */}
       <Modal
         visible={showLogoutModal}
         transparent={true}
@@ -1285,7 +1211,7 @@ const ProfileScreen = ({ navigation }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalIconCircle}>
-              <Text style={styles.modalIconText}>🚪</Text>
+              <Ionicons name="log-out-outline" size={24} color="#DC2626" />
             </View>
             <Text style={styles.modalTitle}>Confirm Logout</Text>
             <Text style={styles.modalMessage}>
@@ -1317,223 +1243,228 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.bgMain || '#F9F8F5',
+    backgroundColor: COLORS.bgMain || '#F9FAFB'
   },
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 40
   },
   headerCard: {
     backgroundColor: COLORS.bgCard || '#FFFFFF',
     borderRadius: 20,
-    padding: 24,
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: COLORS.border || 'rgba(0,0,0,0.06)',
-    ...SHADOWS.card,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
+      android: { elevation: 2 }
+    })
   },
   avatarWrapper: {
     position: 'relative',
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 14,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    marginBottom: 12,
     padding: 3,
     backgroundColor: '#FFFFFF',
     borderWidth: 2,
-    borderColor: COLORS.primary || '#24563B',
+    borderColor: COLORS.primary || '#15803D'
   },
   avatar: {
     width: '100%',
     height: '100%',
-    borderRadius: 45,
+    borderRadius: 42
   },
   activeBeaconDot: {
     position: 'absolute',
-    bottom: 4,
-    right: 4,
+    bottom: 3,
+    right: 3,
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#34C759',
+    backgroundColor: '#10B981',
     borderWidth: 2.5,
-    borderColor: '#FFFFFF',
+    borderColor: '#FFFFFF'
   },
   name: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: COLORS.textMain || '#1C1C1E',
-    marginBottom: 4,
+    marginBottom: 3,
     textAlign: 'center',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2
   },
   role: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D',
     marginBottom: 2,
-    textAlign: 'center',
+    textAlign: 'center'
   },
   org: {
-    fontSize: 13,
-    color: COLORS.textMuted || '#58655E',
+    fontSize: 12,
+    color: COLORS.textMuted || '#6B7280',
     marginBottom: 12,
-    textAlign: 'center',
+    textAlign: 'center'
   },
   statusPillRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 16
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 16,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    backgroundColor: COLORS.bgInput || '#F3F4F6'
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6
   },
   statusPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: COLORS.textMuted || '#58655E',
+    color: COLORS.textMuted || '#6B7280'
   },
   actionsRow: {
     flexDirection: 'row',
     width: '100%',
-    gap: 12,
+    gap: 10
   },
   btnPrimary: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.primary || '#24563B',
-    paddingVertical: 12,
-    borderRadius: 12,
-    ...SHADOWS.sm,
+    backgroundColor: COLORS.primary || '#15803D',
+    paddingVertical: 10,
+    borderRadius: 10
   },
   btnPrimaryText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    marginLeft: 6,
+    marginLeft: 6
   },
   btnOutline: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: COLORS.border || '#E3E7E2',
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    paddingVertical: 10,
+    borderRadius: 10
   },
   btnOutlineText: {
     color: COLORS.textMain || '#1C1C1E',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    marginLeft: 6,
+    marginLeft: 6
   },
   btnIcon: {
-    marginRight: 2,
+    marginRight: 2
   },
   sectionCard: {
     backgroundColor: COLORS.bgCard || '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: COLORS.border || 'rgba(0,0,0,0.06)',
-    ...SHADOWS.card,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6 },
+      android: { elevation: 2 }
+    })
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12
   },
   titleWithCountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.textMain || '#1C1C1E',
-    letterSpacing: -0.2,
+    letterSpacing: -0.2
   },
   countBadge: {
-    backgroundColor: COLORS.primaryLight || '#EBF4EE',
-    paddingHorizontal: 8,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 10
   },
   countBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   addInlineBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 14,
-    backgroundColor: COLORS.primaryLight || '#EBF4EE',
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9'
   },
   addInlineBtnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   completenessHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 10
   },
   completenessTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
-    color: COLORS.textMain || '#1C1C1E',
+    color: COLORS.textMain || '#1C1C1E'
   },
   completenessSub: {
-    fontSize: 12,
-    color: COLORS.textMuted || '#58655E',
-    marginTop: 2,
+    fontSize: 11,
+    color: COLORS.textMuted || '#6B7280',
+    marginTop: 2
   },
   completenessScoreBadge: {
-    backgroundColor: COLORS.primaryLight || '#EBF4EE',
-    paddingHorizontal: 10,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 12
   },
   completenessScoreText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   progressBarTrack: {
-    height: 8,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    height: 7,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
     borderRadius: 4,
     overflow: 'hidden',
-    marginVertical: 4,
+    marginVertical: 4
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: COLORS.primary || '#24563B',
-    borderRadius: 4,
+    backgroundColor: COLORS.primary || '#15803D',
+    borderRadius: 4
   },
   completenessAction: {
     flexDirection: 'row',
@@ -1542,497 +1473,515 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight || '#EDF0EB',
+    borderTopColor: COLORS.borderLight || 'rgba(0,0,0,0.05)'
   },
   completenessActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   hubGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    marginTop: 12,
+    marginTop: 10
   },
   hubTile: {
     width: '48%',
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'flex-start',
+    backgroundColor: COLORS.bgInput || '#F9FAFB',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.05)',
+    alignItems: 'flex-start'
+  },
+  hubTileFullWidth: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   hubIconBg: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFFFFF',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
-    ...SHADOWS.sm,
+    marginBottom: 8
   },
   hubTileTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: COLORS.textMain || '#1C1C1E',
+    color: COLORS.textMain || '#1C1C1E'
   },
   hubTileSub: {
     fontSize: 11,
-    color: COLORS.textMuted || '#58655E',
-    marginTop: 2,
+    color: COLORS.textMuted || '#6B7280',
+    marginTop: 2
   },
   bioText: {
     fontSize: 13,
-    lineHeight: 20,
-    color: COLORS.textMuted || '#58655E',
-    marginTop: 8,
+    lineHeight: 19,
+    color: COLORS.textMuted || '#4B5563',
+    marginTop: 6
   },
   emptyFieldText: {
-    fontSize: 13,
-    color: COLORS.textLight || '#8A9790',
+    fontSize: 12,
+    color: COLORS.textLight || '#9CA3AF',
     marginTop: 6,
-    fontStyle: 'italic',
+    fontStyle: 'italic'
   },
-  // Entries lists (Research & Projects)
   entriesList: {
-    gap: 12,
+    gap: 10
   },
   entryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
+    backgroundColor: COLORS.bgInput || '#F9FAFB',
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
-    borderColor: COLORS.borderLight || '#EDF0EB',
-    ...SHADOWS.sm,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.06)'
   },
   entryHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'flex-start'
   },
   entryTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.textMain || '#1C1C1E',
-    letterSpacing: -0.2,
+    letterSpacing: -0.1
   },
   domainBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: COLORS.primaryLight || '#EBF4EE',
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8,
-    marginTop: 4,
+    borderRadius: 6,
+    marginTop: 4
   },
   domainBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 5,
+    marginTop: 4
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 6,
+    borderWidth: 0.8
   },
   statusBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    textTransform: 'uppercase',
+    textTransform: 'uppercase'
   },
   entryActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 6
   },
   entryActionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   deleteActionBtn: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA'
   },
   descContainer: {
-    marginTop: 8,
+    marginTop: 6
   },
   entryDescText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: COLORS.textMuted || '#58655E',
+    fontSize: 12,
+    lineHeight: 17,
+    color: COLORS.textMuted || '#4B5563'
   },
   expandToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    marginTop: 4,
+    marginTop: 4
   },
   expandToggleText: {
     fontSize: 11,
     fontWeight: '700',
-    color: COLORS.primary || '#24563B',
+    color: COLORS.primary || '#15803D'
   },
   entryChipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 10,
+    marginTop: 8
   },
   skillChip: {
-    backgroundColor: COLORS.sageLight || '#F0F5F1',
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 6
   },
   skillChipText: {
-    fontSize: 11,
-    color: COLORS.sage || '#5A7D69',
-    fontWeight: '600',
+    fontSize: 10,
+    color: COLORS.primaryDark || '#15803D',
+    fontWeight: '600'
   },
   techChip: {
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.borderLight || '#EDF0EB',
+    borderWidth: 0.8,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)'
   },
   techChipText: {
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.textMain || '#1C1C1E',
-    fontWeight: '600',
+    fontWeight: '600'
   },
   projectLinkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight || '#EDF0EB',
+    borderTopWidth: 0.8,
+    borderTopColor: COLORS.borderLight || 'rgba(0,0,0,0.05)'
   },
   projectLinkText: {
     flex: 1,
-    fontSize: 12,
-    color: COLORS.primary || '#24563B',
-    fontWeight: '600',
+    fontSize: 11,
+    color: COLORS.primary || '#15803D',
+    fontWeight: '600'
   },
-  // Empty states
   emptyStateCard: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 18,
     paddingHorizontal: 12,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
-    borderRadius: 14,
+    backgroundColor: COLORS.bgInput || '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.05)'
   },
   emptyIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
-    ...SHADOWS.sm,
+    marginBottom: 8
   },
   emptyStateTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: COLORS.textMain || '#1C1C1E',
-    marginBottom: 4,
+    marginBottom: 4
   },
   emptyStateDesc: {
-    fontSize: 12,
-    color: COLORS.textMuted || '#58655E',
+    fontSize: 11,
+    color: COLORS.textMuted || '#6B7280',
     textAlign: 'center',
     marginBottom: 12,
-    lineHeight: 17,
+    lineHeight: 16
   },
   emptyStateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primary || '#24563B',
+    backgroundColor: COLORS.primary || '#15803D',
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 10,
-    ...SHADOWS.sm,
+    borderRadius: 8
   },
   emptyStateBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#FFFFFF'
   },
   pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
+    gap: 6,
+    marginTop: 6
   },
   pill: {
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.06)'
   },
   pillText: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.textMain || '#1C1C1E',
+    color: COLORS.textMain || '#1C1C1E'
+  },
+  domainPill: {
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 0.8,
+    borderColor: '#C4DEC9',
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  domainPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.primaryDark || '#15803D'
   },
   itemCard: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight || '#EDF0EB',
+    paddingVertical: 8,
+    borderBottomWidth: 0.8,
+    borderBottomColor: COLORS.borderLight || 'rgba(0,0,0,0.05)'
   },
   itemTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: COLORS.textMain || '#1C1C1E',
+    color: COLORS.textMain || '#1C1C1E'
   },
   itemDesc: {
-    fontSize: 12,
-    color: COLORS.textMuted || '#58655E',
-    marginTop: 4,
-    lineHeight: 16,
+    fontSize: 11,
+    color: COLORS.textMuted || '#6B7280',
+    marginTop: 3,
+    lineHeight: 15
   },
   itemMeta: {
     fontSize: 11,
-    color: COLORS.textLight || '#8A9790',
-    marginTop: 3,
+    color: COLORS.textLight || '#9CA3AF',
+    marginTop: 3
   },
   sessionEmailText: {
-    fontSize: 13,
-    color: COLORS.textMuted || '#58655E',
-    marginBottom: 12,
-    marginTop: 6,
+    fontSize: 12,
+    color: COLORS.textMuted || '#6B7280',
+    marginBottom: 10,
+    marginTop: 4
   },
   fullLogoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 12,
-    paddingVertical: 12,
-    marginTop: 6,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingVertical: 10
   },
   fullLogoutBtnText: {
     color: '#DC2626',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '700'
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(26, 36, 30, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 20
   },
   modalCard: {
     backgroundColor: COLORS.bgCard || '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 18,
+    padding: 20,
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 340,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: COLORS.border || 'rgba(0,0,0,0.06)',
-    ...SHADOWS.md,
+    ...SHADOWS.md
   },
   modalIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FEE2E2',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FEF2F2',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
-  },
-  modalIconText: {
-    fontSize: 26,
+    marginBottom: 12
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: COLORS.textMain || '#1C1C1E',
-    marginBottom: 8,
-    textAlign: 'center',
+    marginBottom: 6,
+    textAlign: 'center'
   },
   modalMessage: {
-    fontSize: 13,
-    color: COLORS.textMuted || '#58655E',
-    lineHeight: 19,
+    fontSize: 12,
+    color: COLORS.textMuted || '#6B7280',
+    lineHeight: 18,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 18
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 12,
-    width: '100%',
+    gap: 10,
+    width: '100%'
   },
   modalCancelBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.border || 'rgba(0,0,0,0.1)',
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
-    alignItems: 'center',
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    alignItems: 'center'
   },
   modalCancelText: {
     color: COLORS.textMain || '#1C1C1E',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '600'
   },
   modalLogoutBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     backgroundColor: '#DC2626',
-    alignItems: 'center',
+    alignItems: 'center'
   },
   modalLogoutText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700'
   },
-  // CRUD Modal styles
   crudModalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
+    backgroundColor: COLORS.bgCard || '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
     width: '100%',
-    maxWidth: 440,
-    maxHeight: '90%',
+    maxWidth: 400,
+    maxHeight: '88%',
     borderWidth: 1,
     borderColor: COLORS.border || 'rgba(0,0,0,0.06)',
-    ...SHADOWS.md,
+    ...SHADOWS.md
   },
   crudModalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight || '#EDF0EB',
-    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 0.8,
+    borderBottomColor: COLORS.borderLight || 'rgba(0,0,0,0.05)',
+    marginBottom: 12
   },
   crudModalTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    color: COLORS.textMain || '#1C1C1E',
+    color: COLORS.textMain || '#1C1C1E'
   },
   crudErrorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
     padding: 10,
-    borderRadius: 10,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 12
   },
   crudErrorText: {
     fontSize: 12,
-    color: COLORS.danger || '#DC2626',
+    color: '#DC2626',
     fontWeight: '600',
-    flex: 1,
+    flex: 1
   },
   crudFormGroup: {
-    marginBottom: 12,
+    marginBottom: 12
   },
   crudLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.textMain || '#1C1C1E',
-    marginBottom: 6,
+    marginBottom: 5
   },
   crudInput: {
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     fontSize: 13,
     color: COLORS.textMain || '#1C1C1E',
     borderWidth: 1,
-    borderColor: COLORS.border || '#E3E7E2',
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)'
   },
   crudTextArea: {
     minHeight: 65,
-    textAlignVertical: 'top',
+    textAlignVertical: 'top'
   },
   statusChipsSelector: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 6
   },
   statusSelectorChip: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: 8,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
     borderWidth: 1,
-    borderColor: COLORS.border || '#E3E7E2',
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)'
   },
   statusSelectorChipSelected: {
-    backgroundColor: COLORS.primaryLight || '#EBF4EE',
-    borderColor: COLORS.primary || '#24563B',
+    backgroundColor: COLORS.primaryLight || '#E8F5E9',
+    borderColor: COLORS.primary || '#15803D'
   },
   statusSelectorChipText: {
     fontSize: 11,
     fontWeight: '600',
-    color: COLORS.textMuted || '#58655E',
+    color: COLORS.textMuted || '#6B7280'
   },
   statusSelectorChipTextSelected: {
-    color: COLORS.primary || '#24563B',
-    fontWeight: '700',
+    color: COLORS.primary || '#15803D',
+    fontWeight: '700'
   },
   crudModalActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight || '#EDF0EB',
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 0.8,
+    borderTopColor: COLORS.borderLight || 'rgba(0,0,0,0.05)'
   },
   crudCancelBtn: {
     flex: 1,
-    paddingVertical: 11,
+    paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: COLORS.bgInput || '#F2F1EC',
-    alignItems: 'center',
+    backgroundColor: COLORS.bgInput || '#F3F4F6',
+    borderWidth: 1,
+    borderColor: COLORS.border || 'rgba(0,0,0,0.08)',
+    alignItems: 'center'
   },
   crudCancelBtnText: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textMuted || '#58655E',
+    color: COLORS.textMain || '#1C1C1E'
   },
   crudSubmitBtn: {
     flex: 1.4,
-    paddingVertical: 11,
+    paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: COLORS.primary || '#24563B',
+    backgroundColor: COLORS.primary || '#15803D',
     alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.sm,
+    justifyContent: 'center'
   },
   crudSubmitBtnText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#FFFFFF',
-  },
+    color: '#FFFFFF'
+  }
 });
 
 export default ProfileScreen;
